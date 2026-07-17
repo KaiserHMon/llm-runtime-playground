@@ -39,8 +39,8 @@
 - Dynamic Token Budget
 
 ## Current Progress
-- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`).
-- **Next Step:** Implement orchestration service (`chat_service.py`).
+- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`), Orchestration Service (`chat_service.py`).
+- **Next Step:** Implement FastAPI endpoints (API Layer).
 
 ## Discoveries
 
