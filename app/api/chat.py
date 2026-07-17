@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -12,7 +13,7 @@ from app.schemas.chat import (
     ConversationWithMessages
 )
 from app.models.chat import Conversation
-from app.services.chat_service import process_chat_message
+from app.services.chat_service import process_chat_message, stream_chat_message
 
 router = APIRouter(prefix="/conversations", tags=["Chat"])
 
@@ -40,6 +41,21 @@ async def send_message(conversation_id: str, payload: MessageCreate, db: AsyncSe
     except Exception as e:
         # Avoid leaking raw exceptions in production, but good for local debugging MVP
         raise HTTPException(status_code=500, detail=f"LLM Error: {str(e)}")
+
+@router.post("/{conversation_id}/messages/stream")
+async def send_message_stream(conversation_id: str, payload: MessageCreate, db: AsyncSession = Depends(get_db)):
+    """Sends a user message and streams the model's response back via SSE."""
+    try:
+        return StreamingResponse(
+            stream_chat_message(
+                db=db, 
+                conversation_id=conversation_id, 
+                content=payload.content
+            ),
+            media_type="text/event-stream"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{conversation_id}", response_model=ConversationWithMessages)
 async def get_conversation(conversation_id: str, db: AsyncSession = Depends(get_db)):

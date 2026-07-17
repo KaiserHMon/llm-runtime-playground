@@ -72,3 +72,28 @@ async def generate_response(user_message_content: str, history: list[DBMessage])
         raise ValueError("The model did not return text. Check console/logs.")
         
     return response.text
+
+async def generate_response_stream(user_message_content: str, history: list[DBMessage]):
+    """
+    Builds context and yields chunks of the response from Gemini asynchronously.
+    """
+    contents = build_context(history)
+    contents.append(
+        types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=user_message_content)]
+        )
+    )
+    
+    response_stream = await client.aio.models.generate_content_stream(
+        model=MODEL_ID,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            temperature=0.7,
+        )
+    )
+    
+    async for chunk in response_stream:
+        if chunk.text:
+            yield chunk.text
