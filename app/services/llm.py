@@ -7,7 +7,7 @@ from app.models.chat import Message as DBMessage, MessageRole
 client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 # Using flash by default as it is the fastest and most cost-effective model for an MVP
-MODEL_ID = "gemini-2.5-flash"
+MODEL_ID = "gemini-flash-lite-latest"
 
 # Hardcoding the system prompt for this initial phase.
 # CONCEPTS > CODE: The system prompt defines the "personality" and behavioral boundaries 
@@ -42,9 +42,9 @@ def build_context(db_messages: list[DBMessage], limit: int = 10) -> list[types.C
             
     return contents
 
-def generate_response(user_message_content: str, history: list[DBMessage]) -> str:
+async def generate_response(user_message_content: str, history: list[DBMessage]) -> str:
     """
-    Builds the historical context, appends the current message, and calls Gemini.
+    Builds the historical context, appends the current message, and calls Gemini asynchronously.
     """
     # Build history
     contents = build_context(history)
@@ -57,8 +57,8 @@ def generate_response(user_message_content: str, history: list[DBMessage]) -> st
         )
     )
     
-    # Call the model using the new SDK
-    response = client.models.generate_content(
+    # Call the model using the async SDK client
+    response = await client.aio.models.generate_content(
         model=MODEL_ID,
         contents=contents,
         config=types.GenerateContentConfig(

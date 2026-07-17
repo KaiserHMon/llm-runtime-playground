@@ -5,6 +5,7 @@
 - Learn by implementing fundamental components.
 - Clean architecture without over-engineering.
 - ALWAYS write documentation, code comments, identifiers, and text artifacts in English.
+- Socratic learning: Before implementing any new feature, explain the architecture/concepts or ask questions to help the user reason about the design so they learn the fundamentals.
 
 ## Phase 1: MVP
 ### Functional Requirements
