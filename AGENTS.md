@@ -34,19 +34,10 @@
    - `created_at`: DateTime
 
 ## Future Phases
-- Streaming
 - Tool Calling (Native via SDK)
 - Memory (History summaries with LLM)
 - Dynamic Token Budget
 
 ## Current Progress
-- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`), Orchestration Service (`chat_service.py`).
-- **Next Step:** Implement FastAPI endpoints (API Layer).
-
-## Discoveries
-
-### LLM Temperature Guide
-- **0.0 (Deterministic):** No creativity. Use for JSON parsing, strict data extraction, deterministic code, or RAG systems.
-- **0.2 - 0.4 (Conservative):** Fluid but fact-based. Use for technical translations, summaries, and strict reporting.
-- **0.7 - 0.8 (Conversational):** Default for chatbots, virtual tutors, and email drafting. Balances human-like tone and factuality.
-- **1.0+ (Creative):** Maximum freedom. Use for fiction, brainstorming, or marketing copy.
+- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`), Orchestration Service (`chat_service.py`), and FastAPI API Endpoints (with streaming support).
+- **Next Step:** Upload the repository to GitHub.
