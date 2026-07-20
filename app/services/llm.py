@@ -15,7 +15,19 @@ MODEL_ID = "gemini-flash-lite-latest"
 SYSTEM_PROMPT = """You are a helpful AI assistant.
 Be concise and direct in your answers."""
 
-def build_context(db_messages: list[DBMessage], limit: int = 10) -> list[types.Content]:
+async def count_tokens(text: str) -> int:
+    """
+    Asynchronously count tokens in a given text using Gemini SDK.
+    """
+    if not text:
+        return 0
+    response = await client.aio.models.count_tokens(
+        model=MODEL_ID,
+        contents=text,
+    )
+    return response.total_tokens if response.total_tokens is not None else 0
+
+def build_context(db_messages: list[DBMessage], limit: int = 0) -> list[types.Content]:
     """
     Builds the conversational context for the Gemini SDK.
     Takes the last N messages and formats them as google.genai.types.Content.
