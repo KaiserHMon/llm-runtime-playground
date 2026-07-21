@@ -9,4 +9,4 @@ class Settings(BaseSettings):
 
 # Instantiating the settings. 
 # If GEMINI_API_KEY is missing in the environment, the app will crash here (Fail Fast).
-settings = Settings()
+settings = Settings()  # type: ignore

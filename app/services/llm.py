@@ -27,30 +27,25 @@ async def count_tokens(text: str) -> int:
     )
     return response.total_tokens if response.total_tokens is not None else 0
 
-def build_context(db_messages: list[DBMessage], limit: int = 0) -> list[types.Content]:
+def build_context(db_messages: list[DBMessage]) -> list[types.Content]:
     """
     Builds the conversational context for the Gemini SDK.
-    Takes the last N messages and formats them as google.genai.types.Content.
-    
-    Why a limit? Because the context window is not infinite and tokens cost money.
+    Formats database messages as google.genai.types.Content.
     """
-    # Take the last N messages to avoid overflowing the context
-    recent_messages = db_messages[-limit:] if limit > 0 else db_messages
-    
     contents = []
-    for msg in recent_messages:
-        # Map our DB roles to the roles understood by Gemini ("user" or "model")
-        role = "user" if msg.role == MessageRole.USER else "model"
-        
+    for msg in db_messages:
         # Ignore system messages in the history because Gemini handles them 
         # more efficiently through the configuration (system_instruction).
-        if msg.role in (MessageRole.USER, MessageRole.MODEL):
-            contents.append(
-                types.Content(
-                    role=role,
-                    parts=[types.Part.from_text(text=msg.content)]
-                )
+        if msg.role not in (MessageRole.USER, MessageRole.MODEL):
+            continue
+            
+        role = "user" if msg.role == MessageRole.USER else "model"
+        contents.append(
+            types.Content(
+                role=role,
+                parts=[types.Part.from_text(text=msg.content)]
             )
+        )
             
     return contents
 

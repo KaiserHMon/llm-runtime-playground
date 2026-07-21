@@ -36,8 +36,7 @@
 ## Future Phases
 - Tool Calling (Native via SDK)
 - Memory (History summaries with LLM)
-- Dynamic Token Budget
 
 ## Current Progress
-- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`), Orchestration Service (`chat_service.py`), and FastAPI API Endpoints (with streaming support).
-- **Next Step:** Upload the repository to GitHub.
+- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`), Orchestration Service (`chat_service.py`), FastAPI API Endpoints (with streaming support), and Dynamic Token Budget with database-persisted token counts. Initial GitHub repository upload successfully completed.
+- **Next Step:** Implement Native Tool Calling or Summarization memory.
