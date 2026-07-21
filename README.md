@@ -90,6 +90,6 @@ curl -X POST http://127.0.0.1:8000/conversations/e6f47700-1122-3344-5566-778899a
 
 ## Future Enhancements
 * [ ] **Streaming UI**: Build a minimal frontend to consume the SSE endpoint.
-* [ ] **Dynamic Token Budget**: Count and track tokens per message using `google-genai` capabilities to actively prune history before hitting context limits.
-* [ ] **Native Tool Calling**: Register python helper functions as native tools/functions in the Gemini API config.
+* [x] **Dynamic Token Budget**: Count and track tokens per message using `google-genai` capabilities to actively prune history before hitting context limits.
+* [x] **Native Tool Calling**: Register python helper functions as native tools/functions in the Gemini API config.
 * [ ] **Semantic Memory**: Add a vector storage layer for retrieval-augmented generation (RAG).

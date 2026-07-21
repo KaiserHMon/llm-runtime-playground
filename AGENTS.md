@@ -34,9 +34,9 @@
    - `created_at`: DateTime
 
 ## Future Phases
-- Tool Calling (Native via SDK)
 - Memory (History summaries with LLM)
+- Semantic Memory (RAG with Vector DB)
 
 ## Current Progress
-- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`), Orchestration Service (`chat_service.py`), FastAPI API Endpoints (with streaming support), and Dynamic Token Budget with database-persisted token counts. Initial GitHub repository upload successfully completed.
-- **Next Step:** Implement Native Tool Calling or Summarization memory.
+- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`), Orchestration Service (`chat_service.py`), FastAPI API Endpoints (with streaming support), Dynamic Token Budget with database-persisted token counts, and Native Tool Calling (both database-backed `list_conversations` and utility `get_current_datetime`/`get_weather` tools) with manual multi-turn orchestration loop and thought signatures preservation.
+- **Next Step:** Implement Summarization memory.

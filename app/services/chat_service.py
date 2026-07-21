@@ -1,12 +1,15 @@
 import asyncio
+import inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.chat import Conversation, Message, MessageRole
-from app.services.llm import generate_response, generate_response_stream, count_tokens
+from app.services.llm import generate_response, count_tokens
+from app.services.tools import registry
 
 TOKEN_BUDGET = 4000
 TOKEN_BUFFER_PER_MESSAGE = 20
+MAX_TOOL_LOOP_ITERATIONS = 5
 
 async def ensure_message_tokens_and_slice(db: AsyncSession, history: list[Message]) -> list[Message]:
     """
@@ -18,7 +21,7 @@ async def ensure_message_tokens_and_slice(db: AsyncSession, history: list[Messag
     missing_msgs = [msg for msg in history if msg.tokens is None]
     if missing_msgs:
         try:
-            token_counts = await asyncio.gather(*(count_tokens(msg.content) for msg in missing_msgs))
+            token_counts = await asyncio.gather(*(count_tokens(msg.content or "") for msg in missing_msgs))
             for msg, count in zip(missing_msgs, token_counts):
                 msg.tokens = count
             await db.commit()
@@ -68,100 +71,131 @@ async def get_active_history(db: AsyncSession, conversation_id: str) -> list[Mes
     return await ensure_message_tokens_and_slice(db, history)
 
 
-async def save_chat_messages(
-    db: AsyncSession,
-    conversation_id: str,
-    user_content: str,
-    user_tokens: int,
-    model_content: str,
-    model_tokens: int,
-) -> Message:
+async def execute_tool(db: AsyncSession, tool_name: str, args: dict) -> str:
     """
-    Saves the user and model messages atomically to the database.
+    Executes a registered Python tool function dynamically.
+    
+    If the function signature requests a 'db' parameter, the active AsyncSession 
+    connection is dynamically injected. Errors are captured and returned as strings, 
+    and output length is capped to protect context window token budget.
     """
-    user_message = Message(
-        conversation_id=conversation_id,
-        role=MessageRole.USER,
-        content=user_content,
-        tokens=user_tokens
-    )
-    db.add(user_message)
-    
-    model_message = Message(
-        conversation_id=conversation_id,
-        role=MessageRole.MODEL,
-        content=model_content,
-        tokens=model_tokens
-    )
-    db.add(model_message)
-    
-    await db.commit()
-    await db.refresh(model_message)
-    return model_message
+    tool_func = registry.get_tool(tool_name)
+    if not tool_func:
+        return f"Error: Tool {tool_name} not found"
+        
+    try:
+        sig = inspect.signature(tool_func)
+        call_args = dict(args)
+        # Dynamically inject active database session if expected by the tool signature
+        if "db" in sig.parameters:
+            call_args["db"] = db
+        result = await tool_func(**call_args)
+        
+        result_str = str(result)
+        # Cap tool output size to protect context token limits and avoid bloat
+        if len(result_str) > 1000:
+            result_str = result_str[:997] + "..."
+        return result_str
+    except Exception as e:
+        # Gracefully catch tool exceptions and return error text so the model can handle it
+        return f"Error executing tool {tool_name}: {str(e)}"
+
 
 
 async def process_chat_message(db: AsyncSession, conversation_id: str, content: str) -> Message:
     """
-    Orchestrates the chat flow asynchronously:
-    1. Fetches history and slices context dynamically.
-    2. Calls LLM asynchronously.
-    3. Saves user and model messages atomically.
+    Orchestrates the chat turn flow with manual tool execution loops.
+    
+    This manages a multi-turn conversation turn sequence using Gemini API.
+    If the model generates a function call turn (MODEL role), this backend intercepts it,
+    executes the requested tool functions, and appends the result turn (TOOL role)
+    to the history, continuing the cycle until the model generates a final text response.
+    
+    All messages (user prompt, intermediate tool requests, tool outputs, and final text)
+    are saved to the database in a single atomic commit at the end.
     """
-    # 1. Fetch history and slice it
     sliced_history = await get_active_history(db, conversation_id)
-
-    # 2. Network: Heavy call to the Gemini API (outside the transaction)
-    model_response_text = await generate_response(content, sliced_history)
-
-    # Compute tokens for the new user and model messages
-    user_tokens, model_tokens = await asyncio.gather(
-        count_tokens(content),
-        count_tokens(model_response_text)
-    )
-
-    # 3. Short transaction: Save BOTH messages atomically
-    return await save_chat_messages(
-        db=db,
+    
+    user_tokens = await count_tokens(content)
+    user_message = Message(
         conversation_id=conversation_id,
-        user_content=content,
-        user_tokens=user_tokens,
-        model_content=model_response_text,
-        model_tokens=model_tokens,
+        role=MessageRole.USER,
+        content=content,
+        tokens=user_tokens,
+        parts=[{"text": content}]
     )
-
+    
+    pending_messages = [user_message]
+    current_history = sliced_history.copy()
+    current_history.append(user_message)
+    
+    final_model_message = None
+    
+    for i in range(MAX_TOOL_LOOP_ITERATIONS):
+        response = await generate_response(current_history)
+        
+        if response.function_calls:
+            tool_calls_json = [{"name": fc.name, "args": fc.args} for fc in response.function_calls]
+            parts_json = [p.model_dump(mode="json") for p in response.candidates[0].content.parts]
+                
+            model_message = Message(
+                conversation_id=conversation_id,
+                role=MessageRole.MODEL,
+                content=response.text,
+                tool_calls=tool_calls_json,
+                parts=parts_json,
+                tokens=await count_tokens(response.text) if response.text else 0
+            )
+            pending_messages.append(model_message)
+            current_history.append(model_message)
+            
+            for fc in response.function_calls:
+                result_str = await execute_tool(db, fc.name, fc.args)
+                
+                from google.genai import types
+                part_dict = types.Part.from_function_response(
+                    name=fc.name,
+                    response={"result": result_str}
+                ).model_dump(mode="json")
+                
+                tool_msg = Message(
+                    conversation_id=conversation_id,
+                    role=MessageRole.TOOL,
+                    content=result_str,
+                    tool_name=fc.name,
+                    parts=[part_dict],
+                    tokens=await count_tokens(result_str)
+                )
+                pending_messages.append(tool_msg)
+                current_history.append(tool_msg)
+        else:
+            parts_json = [p.model_dump(mode="json") for p in response.candidates[0].content.parts]
+            final_model_message = Message(
+                conversation_id=conversation_id,
+                role=MessageRole.MODEL,
+                content=response.text,
+                parts=parts_json,
+                tokens=await count_tokens(response.text) if response.text else 0
+            )
+            pending_messages.append(final_model_message)
+            break
+            
+    if not final_model_message:
+        final_model_message = pending_messages[-1]
+        
+    for msg in pending_messages:
+        db.add(msg)
+    await db.commit()
+    await db.refresh(final_model_message)
+    return final_model_message
 
 async def stream_chat_message(db: AsyncSession, conversation_id: str, content: str):
-    """
-    Generator that orchestrates the streaming chat flow:
-    1. Fetches history, ensures tokens are populated, and slices context.
-    2. Streams chunks from LLM to the client.
-    3. Accumulates the full response in memory.
-    4. Persists everything atomically once the stream finishes with token counts.
-    """
-    # 1. Fetch history and slice it
-    sliced_history = await get_active_history(db, conversation_id)
-
-    # 2. Start the LLM stream
-    stream = generate_response_stream(content, sliced_history)
-    
-    full_response = ""
-    
-    # 3. Yield chunks as they arrive and accumulate them
-    async for chunk in stream:
-        full_response += chunk
-        yield chunk
-        
-    # 4. Stream finished: Atomic persistence
-    user_tokens, model_tokens = await asyncio.gather(
-        count_tokens(content),
-        count_tokens(full_response)
-    )
-
-    await save_chat_messages(
-        db=db,
-        conversation_id=conversation_id,
-        user_content=content,
-        user_tokens=user_tokens,
-        model_content=full_response,
-        model_tokens=model_tokens,
-    )
+    # Streaming with tools is complex because we may need to execute tools mid-stream.
+    # For this MVP phase, we run the same execution loop without chunking, 
+    # but yield the final text response chunks to satisfy the stream interface.
+    final_message = await process_chat_message(db, conversation_id, content)
+    if final_message.content:
+        # yield artificial chunks to satisfy the API
+        chunk_size = 20
+        for i in range(0, len(final_message.content), chunk_size):
+            yield final_message.content[i:i+chunk_size]

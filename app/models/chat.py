@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey, Text, Integer
+from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -15,6 +15,7 @@ class MessageRole(str, enum.Enum):
     USER = "user"
     MODEL = "model"
     SYSTEM = "system"
+    TOOL = "tool"
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -28,7 +29,6 @@ class Conversation(Base):
     messages: Mapped[list["Message"]] = relationship(
         "Message", back_populates="conversation", cascade="all, delete-orphan"
     )
-
 class Message(Base):
     __tablename__ = "messages"
 
@@ -36,8 +36,19 @@ class Message(Base):
     conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"))
     
     role: Mapped[MessageRole] = mapped_column(String, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
     tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    
+    # JSON-serialized list of function calls requested by the model in this turn
+    tool_calls: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    # The name of the tool associated with the function response (only for TOOL role)
+    tool_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The unique call ID from the model (optional)
+    tool_call_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Full Turn payload structure containing all parts (text, function calls, and thought signatures).
+    # Storing the raw parts list preserves the binary thought_signature needed by Gemini 2.0/2.5.
+    parts: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
 
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
