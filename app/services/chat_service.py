@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.chat import Conversation, Message, MessageRole
-from app.services.llm import generate_response, count_tokens
+from app.services.llm import generate_response, count_tokens, summarize_messages
 from app.services.tools import registry
 
 TOKEN_BUDGET = 4000
@@ -52,10 +52,11 @@ async def ensure_message_tokens_and_slice(db: AsyncSession, history: list[Messag
     sliced_history.reverse()
     return sliced_history
 
-async def get_active_history(db: AsyncSession, conversation_id: str) -> list[Message]:
+async def get_active_history(db: AsyncSession, conversation_id: str) -> tuple[list[Message], Conversation]:
     """
     Validates conversation existence, fetches chronological history,
     ensures token counts are populated, and slices it to fit the token budget.
+    Also handles incremental summarization for messages excluded from the active history.
     """
     conversation = await db.scalar(select(Conversation).where(Conversation.id == conversation_id))
     if not conversation:
@@ -68,7 +69,39 @@ async def get_active_history(db: AsyncSession, conversation_id: str) -> list[Mes
     )
     history = list(history_result.all())
 
-    return await ensure_message_tokens_and_slice(db, history)
+    sliced_history = await ensure_message_tokens_and_slice(db, history)
+
+    # Incremental Summarization logic
+    if sliced_history:
+        oldest_sliced = sliced_history[0]
+        try:
+            oldest_sliced_idx = history.index(oldest_sliced)
+        except ValueError:
+            oldest_sliced_idx = len(history)
+
+        messages_to_summarize = []
+        if oldest_sliced_idx > 0:
+            if conversation.last_summarized_message_id:
+                last_sum_idx = -1
+                for idx, msg in enumerate(history):
+                    if msg.id == conversation.last_summarized_message_id:
+                        last_sum_idx = idx
+                        break
+                if last_sum_idx != -1:
+                    messages_to_summarize = history[last_sum_idx + 1 : oldest_sliced_idx]
+                else:
+                    messages_to_summarize = history[:oldest_sliced_idx]
+            else:
+                messages_to_summarize = history[:oldest_sliced_idx]
+
+        if messages_to_summarize:
+            new_summary = await summarize_messages(conversation.summary, messages_to_summarize)
+            conversation.summary = new_summary
+            conversation.last_summarized_message_id = messages_to_summarize[-1].id
+            db.add(conversation)
+            await db.commit()
+
+    return sliced_history, conversation
 
 
 async def execute_tool(db: AsyncSession, tool_name: str, args: dict) -> str:
@@ -114,7 +147,7 @@ async def process_chat_message(db: AsyncSession, conversation_id: str, content: 
     All messages (user prompt, intermediate tool requests, tool outputs, and final text)
     are saved to the database in a single atomic commit at the end.
     """
-    sliced_history = await get_active_history(db, conversation_id)
+    sliced_history, conversation = await get_active_history(db, conversation_id)
     
     user_tokens = await count_tokens(content)
     user_message = Message(
@@ -132,7 +165,7 @@ async def process_chat_message(db: AsyncSession, conversation_id: str, content: 
     final_model_message = None
     
     for i in range(MAX_TOOL_LOOP_ITERATIONS):
-        response = await generate_response(current_history)
+        response = await generate_response(current_history, summary=conversation.summary)
         
         if response.function_calls:
             tool_calls_json = [{"name": fc.name, "args": fc.args} for fc in response.function_calls]

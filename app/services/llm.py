@@ -129,19 +129,23 @@ def build_context(db_messages: list[DBMessage]) -> list[types.Content]:
             
     return contents
 
-async def generate_response(history: list[DBMessage]) -> Any:
+async def generate_response(history: list[DBMessage], summary: str | None = None) -> Any:
     """
     Builds the historical context and calls Gemini asynchronously.
     """
     # Build history
     contents = build_context(history)
     
+    system_instruction = SYSTEM_PROMPT
+    if summary:
+        system_instruction = f"{SYSTEM_PROMPT}\n\n[Summary of the conversation so far:\n{summary}]"
+
     # Call the model using the async SDK client
     response = await client.aio.models.generate_content(
         model=MODEL_ID,
         contents=contents,
         config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
+            system_instruction=system_instruction,
             temperature=0.7,
             tools=get_tools_for_gemini()
         )
@@ -149,17 +153,21 @@ async def generate_response(history: list[DBMessage]) -> Any:
     
     return response
 
-async def generate_response_stream(history: list[DBMessage]):
+async def generate_response_stream(history: list[DBMessage], summary: str | None = None):
     """
     Builds context and yields chunks of the response from Gemini asynchronously.
     """
     contents = build_context(history)
     
+    system_instruction = SYSTEM_PROMPT
+    if summary:
+        system_instruction = f"{SYSTEM_PROMPT}\n\n[Summary of the conversation so far:\n{summary}]"
+
     response_stream = await client.aio.models.generate_content_stream(
         model=MODEL_ID,
         contents=contents,
         config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
+            system_instruction=system_instruction,
             temperature=0.7,
             tools=get_tools_for_gemini()
         )
@@ -168,3 +176,47 @@ async def generate_response_stream(history: list[DBMessage]):
     async for chunk in response_stream:
         if chunk.text:
             yield chunk.text
+
+async def summarize_messages(previous_summary: str | None, messages: list[DBMessage]) -> str:
+    """
+    Summarizes new messages and integrates them with the previous summary if it exists.
+    """
+    if not messages:
+        return previous_summary or ""
+
+    formatted_messages = []
+    for msg in messages:
+        role = msg.role.value if hasattr(msg.role, 'value') else str(msg.role)
+        content = msg.content or ""
+        # Include tool calling/response metadata if relevant
+        if msg.tool_calls:
+            content += f"\n[Requested Tool Calls: {msg.tool_calls}]"
+        if msg.tool_name:
+            content += f"\n[Executed Tool: {msg.tool_name}]"
+        formatted_messages.append(f"{role.upper()}: {content}")
+    
+    new_history_text = "\n".join(formatted_messages)
+
+    if previous_summary:
+        prompt = (
+            f"You are an assistant responsible for maintaining an ongoing summary of a conversation.\n\n"
+            f"Existing Summary:\n{previous_summary}\n\n"
+            f"New messages to incorporate:\n{new_history_text}\n\n"
+            f"Provide a single, updated, and consolidated summary of the conversation so far, integrating the new messages into the existing summary. Keep it concise and direct."
+        )
+    else:
+        prompt = (
+            f"You are an assistant responsible for summarizing the following conversation history.\n\n"
+            f"Messages to summarize:\n{new_history_text}\n\n"
+            f"Provide a concise and direct summary of the conversation so far."
+        )
+    
+    response = await client.aio.models.generate_content(
+        model=MODEL_ID,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=0.3,
+        )
+    )
+    
+    return response.text.strip() if response.text else ""

@@ -26,6 +26,9 @@ class Conversation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
 
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_summarized_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
     messages: Mapped[list["Message"]] = relationship(
         "Message", back_populates="conversation", cascade="all, delete-orphan"
     )

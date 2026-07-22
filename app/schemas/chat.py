@@ -40,6 +40,8 @@ class ConversationResponse(BaseModel):
     """Response model returned by the API for a conversation summary."""
     id: str
     title: str | None = None
+    summary: str | None = None
+    last_summarized_message_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

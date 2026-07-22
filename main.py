@@ -8,6 +8,17 @@ async def lifespan(app: FastAPI):
     # Initialize database tables asynchronously
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Check and migrate columns if database already exists
+        def migrate_db(connection):
+            cursor = connection.execute("PRAGMA table_info(conversations)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "summary" not in columns:
+                connection.execute("ALTER TABLE conversations ADD COLUMN summary TEXT")
+            if "last_summarized_message_id" not in columns:
+                connection.execute("ALTER TABLE conversations ADD COLUMN last_summarized_message_id VARCHAR")
+                
+        await conn.run_sync(migrate_db)
     yield
 
 app = FastAPI(
