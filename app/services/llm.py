@@ -129,7 +129,9 @@ def build_context(db_messages: list[DBMessage]) -> list[types.Content]:
             
     return contents
 
-async def generate_response(history: list[DBMessage], summary: str | None = None) -> Any:
+async def generate_response(
+    history: list[DBMessage], summary: str | None = None, rag_context: str | None = None
+) -> Any:
     """
     Builds the historical context and calls Gemini asynchronously.
     """
@@ -138,7 +140,14 @@ async def generate_response(history: list[DBMessage], summary: str | None = None
     
     system_instruction = SYSTEM_PROMPT
     if summary:
-        system_instruction = f"{SYSTEM_PROMPT}\n\n[Summary of the conversation so far:\n{summary}]"
+        system_instruction = f"{system_instruction}\n\n[Summary of the conversation so far:\n{summary}]"
+    if rag_context:
+        system_instruction = (
+            f"{system_instruction}\n\n"
+            f"You have access to the following retrieved document context to help answer the user's question. "
+            f"Cite the sources you use using numeric footnotes (e.g., [1], [2]) corresponding to the numbers in the context below.\n\n"
+            f"Context:\n{rag_context}"
+        )
 
     # Call the model using the async SDK client
     response = await client.aio.models.generate_content(
@@ -153,7 +162,9 @@ async def generate_response(history: list[DBMessage], summary: str | None = None
     
     return response
 
-async def generate_response_stream(history: list[DBMessage], summary: str | None = None):
+async def generate_response_stream(
+    history: list[DBMessage], summary: str | None = None, rag_context: str | None = None
+):
     """
     Builds context and yields chunks of the response from Gemini asynchronously.
     """
@@ -161,7 +172,14 @@ async def generate_response_stream(history: list[DBMessage], summary: str | None
     
     system_instruction = SYSTEM_PROMPT
     if summary:
-        system_instruction = f"{SYSTEM_PROMPT}\n\n[Summary of the conversation so far:\n{summary}]"
+        system_instruction = f"{system_instruction}\n\n[Summary of the conversation so far:\n{summary}]"
+    if rag_context:
+        system_instruction = (
+            f"{system_instruction}\n\n"
+            f"You have access to the following retrieved document context to help answer the user's question. "
+            f"Cite the sources you use using numeric footnotes (e.g., [1], [2]) corresponding to the numbers in the context below.\n\n"
+            f"Context:\n{rag_context}"
+        )
 
     response_stream = await client.aio.models.generate_content_stream(
         model=MODEL_ID,

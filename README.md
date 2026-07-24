@@ -2,11 +2,110 @@
 
 A robust, minimal-abstraction Python backend built from scratch to explore the fundamentals of AI Engineering, Context Engineering, and Large Language Model (LLM) integrations.
 
-Instead of relying on heavy abstraction frameworks (like LangChain or LlamaIndex), this repository implements the core components of a conversational AI system from the ground up using clean architecture principles, FastAPI, SQLAlchemy 2.0, and the official `google-genai` SDK.
+Instead of relying on heavy abstraction frameworks (like LangChain or LlamaIndex) that obscure backend operations, this repository implements the core components of a conversational AI system from the ground up using Clean Architecture principles, FastAPI, SQLAlchemy 2.0, and the official `google-genai` SDK.
 
 ---
 
-## Quick Path
+## Key AI Engineering Concepts Implemented
+
+1. **Context Engineering & Dynamic Token Budgeting**: Rather than sending a conversation's entire history to the LLM—which explodes costs and saturates context windows—the service in [chat_service.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/chat_service.py) tracks exact token counts. Counts are persisted in the database to avoid redundant API token-counting calls, and history is dynamically pruned to fit within a strict 4000-token budget.
+2. **Incremental Summarization (Pointer Pattern)**: Evicted messages are not forgotten. They are condensed into a running summary via the LLM. Using a pointer (`last_summarized_message_id`) on the `Conversation` database table avoids updating $N$ message rows, optimizing database writes to a single row update per eviction event.
+3. **Decoupled Native Tool Calling Loop**: Native Python functions (in [tools.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/tools.py)) are registered as tools. A custom orchestrator handles the multi-turn loop. To prevent schema generation failures on backend parameters (like `db: AsyncSession`), argument validation signatures are parsed using `inspect.signature` to filter out internal parameters before sending schemas to Gemini, injecting the dependencies dynamically at execution time.
+4. **Binary thought_signature Handling**: Modern Gemini models output reasoning paths as raw binary bytes. We leverage Pydantic V2's `model_dump(mode="json")` to serialize these fields seamlessly as Base64 strings for SQLite JSON storage, reversing the process transparently during model validation.
+5. **RAG Text Chunking & In-Memory Vector Search**: In [rag_service.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/rag_service.py), documents are split using a **Recursive Character Text Splitter** with custom overlap (500 characters chunk size, 100 characters overlap) to preserve sentence cohesion. Embeddings are generated concurrently via `asyncio.gather` and searched using a pure-Python cosine similarity computation over SQLite-stored vectors.
+
+---
+
+## Project Structure
+
+```text
+llm-runtime-playground/
+├── app/
+│   ├── api/              # API Layer (FastAPI Routers)
+│   │   ├── chat.py       # Chat execution & history retrieval endpoints
+│   │   └── documents.py  # Document ingestion & search endpoints
+│   ├── core/             # Configuration & Initialization
+│   │   ├── config.py     # Pydantic Settings validation
+│   │   └── database.py   # Async SQLite session engine using SQLAlchemy 2.0
+│   ├── models/           # Data Layer (Database schemas)
+│   │   └── chat.py       # Conversation, Message, Document, and Chunk tables
+│   ├── schemas/          # API Validation Layer (Pydantic V2 schemas)
+│   │   ├── chat.py       # Message create/response data validations
+│   │   └── document.py   # Document upload/response data validations
+│   └── services/         # Business Logic Layer
+│       ├── chat_service.py # Orchestrates history pruning, summarization & tool loops
+│       ├── llm.py          # Direct Google GenAI API client and prompt construction
+│       ├── rag_service.py  # Text splitting, embedding generation & search
+│       └── tools.py        # Custom python utility functions declared as LLM tools
+├── tests/                # Test suites & unit testing capabilities
+├── main.py               # Application entrypoint & DB lifecycle migrations
+├── pyproject.toml        # uv configuration & python dependencies
+└── README.md             # Project documentation
+```
+
+---
+
+## Request & Response Lifecycle
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant API as FastAPI (API Layer)
+    participant ChatService as Chat Service (Service Layer)
+    participant RAG as RAG Service (Service Layer)
+    participant LLM as LLM Service (google-genai)
+    participant DB as SQLite DB (Data Layer)
+
+    Client->>API: POST /conversations/{id}/messages (content)
+    API->>ChatService: process_chat_message(db, conversation_id, content)
+    
+    rect rgb(240, 240, 240)
+        Note over ChatService, RAG: Step 1: Semantic Retrieval (RAG)
+        ChatService->>RAG: search_chunks(db, query, conversation_id)
+        RAG->>LLM: get_embedding(query)
+        LLM-->>RAG: Float Vector
+        RAG->>DB: Query chunks
+        DB-->>RAG: Chunks List
+        RAG-->>ChatService: Top-K matching chunks
+    end
+
+    rect rgb(230, 245, 230)
+        Note over ChatService, DB: Step 2: Context Reconstruction & Eviction
+        ChatService->>DB: Fetch chronological conversation history
+        DB-->>ChatService: Raw Messages
+        ChatService->>ChatService: Slice messages to fit TOKEN_BUDGET
+        opt Evicted messages exist
+            ChatService->>LLM: summarize_messages(previous_summary, evicted_messages)
+            LLM-->>ChatService: New consolidated summary
+            ChatService->>DB: Update summary & pointer (last_summarized_message_id)
+        end
+    end
+
+    rect rgb(230, 230, 250)
+        Note over ChatService, LLM: Step 3: Generation & Function Calling Loop
+        loop Up to MAX_TOOL_LOOP_ITERATIONS
+            ChatService->>LLM: generate_response(history, summary, rag_context)
+            LLM-->>ChatService: Response (Text or FunctionCall)
+            alt Response contains FunctionCall
+                ChatService->>ChatService: Execute python tool (e.g. get_weather)
+                Note over ChatService: Inject 'db' session if requested in signature
+                ChatService->>ChatService: Append Tool Response to loop history
+            else Response is final text
+                Note over ChatService: Break loop
+            end
+        end
+    end
+
+    ChatService->>DB: Atomic write (save User, Model, Tool & final messages)
+    DB-->>ChatService: Confirmed
+    ChatService-->>API: Final Response Message
+    API-->>Client: HTTP 200 (JSON Response)
+```
+
+---
+
+## Setup & Running
 
 ### 1. Set Up Environment
 Create a `.env` file in the root directory and add your Gemini API key:
@@ -29,67 +128,57 @@ Open your browser and navigate to the interactive OpenAPI documentation:
 
 ## API Reference
 
+### Chats
+
 | Endpoint | Method | Payload | Description |
 | :--- | :--- | :--- | :--- |
 | `/conversations` | `POST` | `{"title": "Optional Title"}` | Creates a new empty conversation thread. |
 | `/conversations/{id}` | `GET` | *None* | Retrieves a conversation including its full sorted message history. |
-| `/conversations/{id}/messages` | `POST` | `{"content": "Your message"}` | Sends a message, calls Gemini, and returns the full response synchronously. |
-| `/conversations/{id}/messages/stream` | `POST` | `{"content": "Your message"}` | Streams the Gemini response chunks in real-time via Server-Sent Events (SSE). |
+| `/conversations/{id}/messages` | `POST` | `{"content": "Your message"}` | Sends a message, executes retrieval, runs tool calling loop, and returns the response. |
+| `/conversations/{id}/messages/stream` | `POST` | `{"content": "Your message"}` | Streams the response chunks in real-time. |
 
----
+### Documents (RAG Ingestion)
 
-## Core Architecture & Rationale
-
-| Layer | Technologies | Rationale & Design Decision |
-| :--- | :--- | :--- |
-| **API Layer** | FastAPI & Pydantic V2 | Async-first routing with strict contract validations. Keeps input schemas (`MessageCreate`) separate from output schemas (`MessageResponse`) to prevent mass-assignment security vulnerabilities. |
-| **Service Layer** | `google-genai` SDK | Handles **Context Engineering**. Implements custom prompt building, token optimization (truncating chat history context window to a maximum limit), and orchestrates LLM API calls. |
-| **Data Layer** | SQLAlchemy 2.0 & SQLite | Local SQLite persistence using `aiosqlite` for asynchronous connection handling. Adheres to modern type-safe declarative mapping to support static analyzers like Pyright/Ruff. |
-
-### Transactional Atomicity
-To avoid corrupted or mismatched chat histories due to network or provider issues, the orchestration layer in [app/services/chat_service.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/chat_service.py) enforces atomic writes:
-1. Fetch history first (read-only query).
-2. Execute the heavy network request to the Gemini API outside the database transaction.
-3. If the network call completes successfully, open a short transaction to insert both the user message and the model's response atomically.
+| Endpoint | Method | Payload | Description |
+| :--- | :--- | :--- | :--- |
+| `/documents` | `GET` | *None* | Lists all uploaded documents. |
+| `/documents/upload` | `POST` | `{"name": "doc_name", "content": "raw text", "conversation_id": null}` | Splits text, generates embeddings, and indexes the document chunks. |
+| `/documents/{name}` | `DELETE` | *None* | Deletes a document and cascades deletion to all its vector chunks. |
 
 ---
 
 ## Testing the API (Examples)
 
-### Create a Conversation
+### 1. Ingest a Document for RAG
+```bash
+curl -X POST http://127.0.0.1:8000/documents/upload \
+     -H "Content-Type: application/json" \
+     -d '{
+       "name": "clean_architecture_doc",
+       "content": "Clean Architecture enforces segregation of concerns. High level business logic (entities and use cases) does not depend on databases, frameworks, or web APIs. Instead, those outer layers depend on interfaces defined by the inner core."
+     }'
+```
+
+### 2. Create a Conversation
 ```bash
 curl -X POST http://127.0.0.1:8000/conversations \
      -H "Content-Type: application/json" \
-     -d '{"title": "AI Engineering Chat"}'
+     -d '{"title": "Software Design Talk"}'
 ```
 Response:
 ```json
 {
   "id": "e6f47700-1122-3344-5566-778899aabbcc",
-  "title": "AI Engineering Chat",
+  "title": "Software Design Talk",
   "created_at": "2026-07-20T17:00:00Z",
   "updated_at": "2026-07-20T17:00:00Z"
 }
 ```
 
-### Send Message (Synchronous)
+### 3. Ask a Question (Leverages Ingested Document via RAG)
 ```bash
 curl -X POST http://127.0.0.1:8000/conversations/e6f47700-1122-3344-5566-778899aabbcc/messages \
      -H "Content-Type: application/json" \
-     -d '{"content": "Explain clean architecture in 1 sentence."}'
+     -d '{"content": "According to the ingested documents, what does high level business logic depend on?"}'
 ```
 
-### Send Message (Streaming SSE)
-```bash
-curl -X POST http://127.0.0.1:8000/conversations/e6f47700-1122-3344-5566-778899aabbcc/messages/stream \
-     -H "Content-Type: application/json" \
-     -d '{"content": "Write a short poem about coding."}'
-```
-
----
-
-## Future Enhancements
-* [ ] **Streaming UI**: Build a minimal frontend to consume the SSE endpoint.
-* [x] **Dynamic Token Budget**: Count and track tokens per message using `google-genai` capabilities to actively prune history before hitting context limits.
-* [x] **Native Tool Calling**: Register python helper functions as native tools/functions in the Gemini API config.
-* [ ] **Semantic Memory**: Add a vector storage layer for retrieval-augmented generation (RAG).

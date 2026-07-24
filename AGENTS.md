@@ -6,6 +6,7 @@
 - Clean architecture without over-engineering.
 - ALWAYS write documentation, code comments, identifiers, and text artifacts in English.
 - Socratic learning: Before implementing any new feature, explain the architecture/concepts or ask questions to help the user reason about the design so they learn the fundamentals.
+- **SDD Model Mapping**: Always invoke SDD phase subagents using this model mapping instead of 'inherit': sdd-init=flash, sdd-explore=flash, sdd-propose=pro, sdd-spec=pro, sdd-design=pro, sdd-tasks=pro, sdd-apply=flash, sdd-verify=flash, sdd-archive=flash.
 
 ## Phase 1: MVP
 ### Functional Requirements
@@ -38,5 +39,5 @@
 - Semantic Memory (RAG with Vector DB)
 
 ## Current Progress
-- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`), Orchestration Service (`chat_service.py`), FastAPI API Endpoints (with streaming support), Dynamic Token Budget with database-persisted token counts, and Native Tool Calling (both database-backed `list_conversations` and utility `get_current_datetime`/`get_weather` tools) with manual multi-turn orchestration loop and thought signatures preservation.
-- **Next Step:** Implement Summarization memory.
+- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`), Orchestration Service (`chat_service.py`), FastAPI API Endpoints (with streaming support), Dynamic Token Budget with database-persisted token counts, Native Tool Calling (both database-backed `list_conversations` and utility `get_current_datetime`/`get_weather` tools) with manual multi-turn orchestration loop and thought signatures preservation, and Incremental Summarization Memory (with pointer pattern).
+- **Next Step:** Implement Semantic Memory (RAG with Vector DB).

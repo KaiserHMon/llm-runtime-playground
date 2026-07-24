@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.models.chat import Conversation, Message, MessageRole
 from app.services.llm import generate_response, count_tokens, summarize_messages
 from app.services.tools import registry
+from app.services.rag_service import search_chunks
 
 TOKEN_BUDGET = 4000
 TOKEN_BUFFER_PER_MESSAGE = 20
@@ -72,11 +73,15 @@ async def get_active_history(db: AsyncSession, conversation_id: str) -> tuple[li
     sliced_history = await ensure_message_tokens_and_slice(db, history)
 
     # Incremental Summarization logic
-    if sliced_history:
-        oldest_sliced = sliced_history[0]
-        try:
-            oldest_sliced_idx = history.index(oldest_sliced)
-        except ValueError:
+    if history:
+        if sliced_history:
+            oldest_sliced = sliced_history[0]
+            try:
+                oldest_sliced_idx = history.index(oldest_sliced)
+            except ValueError:
+                oldest_sliced_idx = len(history)
+        else:
+            # If sliced_history is empty, all messages in the history have been evicted
             oldest_sliced_idx = len(history)
 
         messages_to_summarize = []
@@ -149,6 +154,16 @@ async def process_chat_message(db: AsyncSession, conversation_id: str, content: 
     """
     sliced_history, conversation = await get_active_history(db, conversation_id)
     
+    # Retrieve relevant RAG context
+    chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5)
+    rag_context = ""
+    if chunks:
+        formatted_chunks = []
+        for idx, chunk in enumerate(chunks, 1):
+            source_name = chunk.document.name if chunk.document else "Unknown"
+            formatted_chunks.append(f"[{idx}] (Source: {source_name}): {chunk.content}")
+        rag_context = "\n\n".join(formatted_chunks)
+    
     user_tokens = await count_tokens(content)
     user_message = Message(
         conversation_id=conversation_id,
@@ -165,7 +180,11 @@ async def process_chat_message(db: AsyncSession, conversation_id: str, content: 
     final_model_message = None
     
     for i in range(MAX_TOOL_LOOP_ITERATIONS):
-        response = await generate_response(current_history, summary=conversation.summary)
+        response = await generate_response(
+            current_history,
+            summary=conversation.summary,
+            rag_context=rag_context or None
+        )
         
         if response.function_calls:
             tool_calls_json = [{"name": fc.name, "args": fc.args} for fc in response.function_calls]

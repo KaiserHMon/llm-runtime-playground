@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app.core.database import Base, engine
 from app.api.chat import router as chat_router
+from app.api.documents import router as documents_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -28,8 +29,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Include the API router
+# Include the API routers
 app.include_router(chat_router)
+app.include_router(documents_router)
 
 @app.get("/")
 def read_root():
