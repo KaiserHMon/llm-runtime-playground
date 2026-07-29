@@ -128,6 +128,16 @@ Open your browser and navigate to the interactive OpenAPI documentation:
 * **Interactive Docs**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 * **API Status**: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
 
+### 4. Running the Tests
+Execute the asynchronous pytest integration suite using `uv`:
+```bash
+uv run pytest
+```
+This tests:
+* **Provider Hot-Swapping**: Verifies routing and execution loops offline via the `MockProvider`.
+* **RAG Flow**: Validates text chunking, embedding generation, in-memory cosine similarity, context retrieval, and cascading database deletes.
+* **HTTP Endpoints**: Tests REST endpoints in-memory using `httpx.AsyncClient` connected directly to the FastAPI app.
+
 ---
 
 ## API Reference
