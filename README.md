@@ -12,8 +12,9 @@ Instead of relying on heavy abstraction frameworks (like LangChain or LlamaIndex
 2. **Incremental Summarization (Pointer Pattern)**: Evicted messages are not forgotten. They are condensed into a running summary via the LLM. Using a pointer (`last_summarized_message_id`) on the `Conversation` database table avoids updating $N$ message rows, optimizing database writes to a single row update per eviction event.
 3. **Decoupled Native Tool Calling Loop**: Native Python functions (in [tools.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/tools.py)) are registered as tools. A custom orchestrator handles the multi-turn loop. To prevent schema generation failures on backend parameters (like `db: AsyncSession`), argument validation signatures are parsed using `inspect.signature` to filter out internal parameters before sending schemas to Gemini, injecting the dependencies dynamically at execution time.
 4. **Binary thought_signature Handling**: Modern Gemini models output reasoning paths as raw binary bytes. We leverage Pydantic V2's `model_dump(mode="json")` to serialize these fields seamlessly as Base64 strings for SQLite JSON storage, reversing the process transparently during model validation.
-5. **RAG Text Chunking & In-Memory Vector Search**: In [rag_service.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/rag_service.py), documents are split using a **Recursive Character Text Splitter** with custom overlap (500 characters chunk size, 100 characters overlap) to preserve sentence cohesion. Embeddings are generated concurrently via `asyncio.gather` and searched using a pure-Python cosine similarity computation over SQLite-stored vectors.
+5. **RAG Text Chunking & Vector Search (Qdrant)**: In [rag_service.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/rag_service.py), documents are split using a **Recursive Character Text Splitter** with custom overlap (500 characters chunk size, 100 characters overlap) to preserve sentence cohesion. Embeddings are generated concurrently via `asyncio.gather` and searched semantically using a Qdrant Vector DB instance (supporting in-memory, disk path, or cloud endpoints), mapped with SQLite document chunk metadata.
 6. **Multi-Provider LLM Factory**: Under [services/](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/), an abstract `LLMProvider` interface decouples the core chat orchestrator from vendor-specific SDK libraries. The global `LLMFactory` registry maps dynamic payloads (e.g. `gemini` or a local non-networked `mock`) to their concrete integrations, facilitating offline testing, modular migrations, and multi-model routing.
+7. **Real-time LLM Response Streaming**: Support for Server-Sent Events (SSE) allows streaming the final model turn chunk-by-chunk to the client in real-time. Intermediate tool loops run synchronously on the backend, and once the final answer turn begins, response chunks are yielded directly from the provider, committing all turn messages atomically at the end.
 
 ---
 
@@ -44,6 +45,7 @@ llm-runtime-playground/
 ├── tests/                # Test suites & unit testing capabilities
 ├── main.py               # Application entrypoint & DB lifecycle migrations
 ├── pyproject.toml        # uv configuration & python dependencies
+├── roadmap.md            # Future refactoring & code quality roadmap
 └── README.md             # Project documentation
 ```
 
