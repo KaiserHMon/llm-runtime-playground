@@ -1,4 +1,6 @@
-import pytest
+import os
+os.environ["QDRANT_PATH"] = ":memory:"
+
 import pytest_asyncio
 import httpx
 
@@ -22,6 +24,9 @@ async def setup_test_db():
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        
+    from app.services.rag_service import init_qdrant
+    await init_qdrant()
     
     yield
     

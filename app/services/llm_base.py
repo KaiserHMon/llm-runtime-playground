@@ -28,7 +28,7 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
-    async def generate_response_stream(
+    def generate_response_stream(
         self,
         history: List[DBMessage],
         summary: str | None = None,

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, JSON
+from sqlalchemy import String, DateTime, ForeignKey, Text, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 from typing import TYPE_CHECKING
@@ -35,7 +35,6 @@ class DocumentChunk(Base):
     conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[list[float]] = mapped_column(JSON, nullable=False)
 
     document: Mapped["Document"] = relationship("Document", back_populates="chunks")
     conversation: Mapped["Conversation | None"] = relationship("Conversation", back_populates="document_chunks")

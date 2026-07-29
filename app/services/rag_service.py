@@ -1,14 +1,37 @@
 import asyncio
-import math
+import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from google import genai
 from app.core.config import settings
 from app.models.document import Document, DocumentChunk
 
+from qdrant_client import AsyncQdrantClient, models
+
 client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+# Initialize Qdrant Client
+if settings.QDRANT_URL:
+    qdrant_client = AsyncQdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
+elif settings.QDRANT_PATH == ":memory:":
+    qdrant_client = AsyncQdrantClient(location=":memory:")
+else:
+    qdrant_client = AsyncQdrantClient(path=settings.QDRANT_PATH)
+
+QDRANT_COLLECTION = "document_chunks"
+VECTOR_SIZE = 768
+
+async def init_qdrant():
+    """Initializes Qdrant by ensuring the collection exists."""
+    collections_response = await qdrant_client.get_collections()
+    collection_names = [col.name for col in collections_response.collections]
+    if QDRANT_COLLECTION not in collection_names:
+        await qdrant_client.create_collection(
+            collection_name=QDRANT_COLLECTION,
+            vectors_config=models.VectorParams(size=VECTOR_SIZE, distance=models.Distance.COSINE)
+        )
 
 def split_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
     """
@@ -24,19 +47,16 @@ def split_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str
         if len(text_to_split) <= chunk_size:
             return [text_to_split]
         if not separators:
-            # Force split by characters if no separators left
             return [text_to_split[i : i + chunk_size] for i in range(0, len(text_to_split), chunk_size - overlap)]
         
         separator = separators[0]
         next_separators = separators[1:]
         
-        # Split text by separator
         if separator == "":
             splits = list(text_to_split)
         else:
             splits = text_to_split.split(separator)
             
-        # Re-add separator where it was (except for the last split)
         final_splits = []
         for i, s in enumerate(splits):
             if separator != "" and i < len(splits) - 1:
@@ -52,21 +72,17 @@ def split_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str
             if not s:
                 continue
             if len(s) > chunk_size:
-                # If a single split is larger than chunk_size, we split it recursively
                 if current_chunk:
                     chunks.append("".join(current_chunk))
                     current_chunk = []
                     current_len = 0
                 
-                # Recursively split the long block
                 sub_chunks = _split(s, next_separators)
                 chunks.extend(sub_chunks)
             else:
                 if current_len + len(s) > chunk_size:
-                    # Current chunk is full, emit it
                     chunks.append("".join(current_chunk))
                     
-                    # Retain overlap: take last elements from current_chunk up to overlap limit
                     overlap_chunk = []
                     overlap_len = 0
                     for item in reversed(current_chunk):
@@ -102,7 +118,7 @@ async def get_embedding(text: str) -> list[float]:
             contents=text
         )
         if response.embeddings and response.embeddings[0].values is not None:
-            return response.embeddings[0].values
+            return response.embeddings[0].values[:768]
     except Exception:
         # Fall back to gemini-embedding-001 if gemini-embedding-2 is not available
         response = await client.aio.models.embed_content(
@@ -110,56 +126,59 @@ async def get_embedding(text: str) -> list[float]:
             contents=text
         )
         if response.embeddings and response.embeddings[0].values is not None:
-            return response.embeddings[0].values
+            return response.embeddings[0].values[:768]
             
     raise ValueError("Failed to retrieve embedding values from Gemini API response.")
-
-def cosine_similarity(v1: list[float], v2: list[float]) -> float:
-    """
-    Computes the cosine similarity between two float vectors in pure Python.
-    """
-    if not v1 or not v2 or len(v1) != len(v2):
-        return 0.0
-    dot_product = sum(a * b for a, b in zip(v1, v2))
-    mag1 = math.sqrt(sum(a * a for a in v1))
-    mag2 = math.sqrt(sum(b * b for b in v2))
-    if mag1 == 0.0 or mag2 == 0.0:
-        return 0.0
-    return dot_product / (mag1 * mag2)
 
 async def search_chunks(db: AsyncSession, query: str, conversation_id: str | None = None, top_k: int = 5) -> list[DocumentChunk]:
     """
     Searches document chunks matching the query.
     Filters chunks where conversation_id IS NULL OR conversation_id == current.
-    Calculates cosine similarities in memory and returns the top-k chunks.
+    Calculates cosine similarities in Qdrant and returns the top-k chunks from SQLite.
     """
     if not query:
         return []
         
     query_emb = await get_embedding(query)
     
-    # Query matching chunks
+    filter_condition = models.Filter(
+        should=[
+            models.FieldCondition(
+                key="conversation_id",
+                match=models.MatchValue(value=conversation_id)
+            ) if conversation_id else models.IsNullCondition(is_null=models.PayloadField(key="conversation_id")),
+            models.IsNullCondition(is_null=models.PayloadField(key="conversation_id"))
+        ]
+    )
+    
+    search_result = await qdrant_client.query_points(
+        collection_name=QDRANT_COLLECTION,
+        query=query_emb,
+        query_filter=filter_condition,
+        limit=top_k
+    )
+    
+    if not search_result or not search_result.points:
+        return []
+        
+    chunk_ids = [str(point.id) for point in search_result.points]
+    
     stmt = (
         select(DocumentChunk)
         .options(joinedload(DocumentChunk.document))
-        .where(
-            or_(
-                DocumentChunk.conversation_id.is_(None),
-                DocumentChunk.conversation_id == conversation_id
-            )
-        )
+        .where(DocumentChunk.id.in_(chunk_ids))
     )
     result = await db.scalars(stmt)
-    chunks = list(result.all())
+    chunks = {chunk.id: chunk for chunk in result.all()}
     
-    # Compute similarity and sort
-    scored_chunks = []
-    for chunk in chunks:
-        sim = cosine_similarity(query_emb, chunk.embedding)
-        scored_chunks.append((chunk, sim))
-        
-    scored_chunks.sort(key=lambda x: x[1], reverse=True)
-    return [chunk for chunk, sim in scored_chunks[:top_k]]
+    # Return chunks in the order returned by Qdrant
+    ordered_chunks = []
+    for point in search_result.points:
+        chunk_id = str(point.id)
+        if chunk_id in chunks:
+            ordered_chunks.append(chunks[chunk_id])
+            
+    return ordered_chunks
 
 async def ingest_document(db: AsyncSession, name: str, content: str, conversation_id: str | None = None) -> Document:
     """
@@ -171,6 +190,19 @@ async def ingest_document(db: AsyncSession, name: str, content: str, conversatio
         # Delete existing document with the same name
         existing_doc = await db.scalar(select(Document).where(Document.name == name))
         if existing_doc:
+            # First delete points in Qdrant corresponding to this document
+            await qdrant_client.delete(
+                collection_name=QDRANT_COLLECTION,
+                points_selector=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="document_id",
+                            match=models.MatchValue(value=existing_doc.id)
+                        )
+                    ]
+                )
+            )
+            # Then delete in SQLite
             await db.delete(existing_doc)
             await db.flush()
             
@@ -187,15 +219,37 @@ async def ingest_document(db: AsyncSession, name: str, content: str, conversatio
         db.add(db_doc)
         await db.flush()  # Populate db_doc.id
         
+        points = []
         for idx, (chunk_text, emb) in enumerate(zip(chunks, embeddings)):
+            chunk_id = str(uuid.uuid4())
             db_chunk = DocumentChunk(
+                id=chunk_id,
                 document_id=db_doc.id,
                 conversation_id=conversation_id,
                 chunk_index=idx,
-                content=chunk_text,
-                embedding=emb
+                content=chunk_text
             )
             db.add(db_chunk)
+            
+            points.append(
+                models.PointStruct(
+                    id=chunk_id,
+                    vector=emb,
+                    payload={
+                        "document_id": db_doc.id,
+                        "document_name": db_doc.name,
+                        "conversation_id": conversation_id,
+                        "chunk_index": idx,
+                        "content": chunk_text
+                    }
+                )
+            )
+            
+        if points:
+            await qdrant_client.upsert(
+                collection_name=QDRANT_COLLECTION,
+                points=points
+            )
             
         await db.commit()
         await db.refresh(db_doc)

@@ -132,6 +132,7 @@ Be concise and direct in your answers."""
             tool_calls = [
                 ToolCall(name=fc.name, args=fc.args or {})
                 for fc in response.function_calls
+                if fc.name
             ]
             
         parts = None
