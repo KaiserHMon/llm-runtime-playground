@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.schemas.document import DocumentUpload, DocumentResponse
 from app.models.document import Document
-from app.services.rag_service import ingest_document
+from app.services.rag_service import ingest_document, delete_document as delete_doc_service
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -39,13 +39,14 @@ async def delete_document(name: str, db: AsyncSession = Depends(get_db)):
     """
     Deletes a document by its unique name, triggering cascading deletion of its chunks.
     """
-    doc = await db.scalar(select(Document).where(Document.name == name))
-    if not doc:
-        raise HTTPException(status_code=404, detail=f"Document '{name}' not found")
     try:
-        await db.delete(doc)
+        deleted = await delete_doc_service(db, name)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Document '{name}' not found")
         await db.commit()
         return {"status": "success", "message": f"Document '{name}' deleted successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")

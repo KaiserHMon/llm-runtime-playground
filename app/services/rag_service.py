@@ -180,6 +180,29 @@ async def search_chunks(db: AsyncSession, query: str, conversation_id: str | Non
             
     return ordered_chunks
 
+async def delete_document(db: AsyncSession, name: str) -> bool:
+    """
+    Deletes a document by its unique name, removing its chunks from Qdrant vector DB
+    and cascading deletions in SQLite. Returns True if deleted, False if not found.
+    """
+    doc = await db.scalar(select(Document).where(Document.name == name))
+    if not doc:
+        return False
+        
+    await qdrant_client.delete(
+        collection_name=QDRANT_COLLECTION,
+        points_selector=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="document_id",
+                    match=models.MatchValue(value=doc.id)
+                )
+            ]
+        )
+    )
+    await db.delete(doc)
+    return True
+
 async def ingest_document(db: AsyncSession, name: str, content: str, conversation_id: str | None = None) -> Document:
     """
     Ingests a document. First removes any existing document with the same name (cascade deletes chunks),
@@ -188,23 +211,8 @@ async def ingest_document(db: AsyncSession, name: str, content: str, conversatio
     """
     try:
         # Delete existing document with the same name
-        existing_doc = await db.scalar(select(Document).where(Document.name == name))
-        if existing_doc:
-            # First delete points in Qdrant corresponding to this document
-            await qdrant_client.delete(
-                collection_name=QDRANT_COLLECTION,
-                points_selector=models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="document_id",
-                            match=models.MatchValue(value=existing_doc.id)
-                        )
-                    ]
-                )
-            )
-            # Then delete in SQLite
-            await db.delete(existing_doc)
-            await db.flush()
+        await delete_document(db, name)
+        await db.flush()
             
         # Split text into chunks
         chunks = split_text(content, chunk_size=500, overlap=100)
