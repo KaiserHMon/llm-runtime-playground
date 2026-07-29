@@ -37,3 +37,29 @@ async def test_mock_provider_tool_calling(db_session):
     assert msg_tool.content is not None
     assert "[Mock Provider]" in msg_tool.content
     assert "weather" in msg_tool.content.lower() or "sunny" in msg_tool.content.lower()
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_streaming(db_session):
+    """Test real streaming response using the Mock provider."""
+    conversation = Conversation(title="Streaming Test Conversation")
+    db_session.add(conversation)
+    await db_session.commit()
+    await db_session.refresh(conversation)
+
+    from app.services.chat_service import stream_chat_message
+    
+    chunks = []
+    async for chunk in stream_chat_message(
+        db_session,
+        conversation_id=conversation.id,
+        content="Hola robot en stream",
+        provider_name="mock"
+    ):
+        chunks.append(chunk)
+        
+    full_text = "".join(chunks)
+    assert len(chunks) > 1  # Verify it actually yields multiple chunks
+    assert "[Mock Provider]" in full_text
+    assert "Hola robot en stream" in full_text
+

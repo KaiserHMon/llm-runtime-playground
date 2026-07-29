@@ -245,12 +245,107 @@ async def process_chat_message(
     return final_model_message
 
 async def stream_chat_message(db: AsyncSession, conversation_id: str, content: str, provider_name: str | None = None):
-    # Streaming with tools is complex because we may need to execute tools mid-stream.
-    # For this MVP phase, we run the same execution loop without chunking, 
-    # but yield the final text response chunks to satisfy the stream interface.
-    final_message = await process_chat_message(db, conversation_id, content, provider_name=provider_name)
-    if final_message.content:
-        # yield artificial chunks to satisfy the API
-        chunk_size = 20
-        for i in range(0, len(final_message.content), chunk_size):
-            yield final_message.content[i:i+chunk_size]
+    """
+    Orchestrates the chat turn flow with manual tool execution loops,
+    but streams the final model response turn to the client in real-time.
+    
+    Like process_chat_message, intermediate tool requests and responses are executed
+    synchronously. Once the final turn is reached (no more tool calls), this yields 
+    response chunks as they are received from the LLM provider, saving the complete
+    sequence in the database at the end.
+    """
+    provider = factory.get_provider(provider_name)
+    sliced_history, conversation = await get_active_history(db, conversation_id, provider)
+    
+    # Retrieve relevant RAG context
+    chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5)
+    rag_context = ""
+    if chunks:
+        formatted_chunks = []
+        for idx, chunk in enumerate(chunks, 1):
+            source_name = chunk.document.name if chunk.document else "Unknown"
+            formatted_chunks.append(f"[{idx}] (Source: {source_name}): {chunk.content}")
+        rag_context = "\n\n".join(formatted_chunks)
+    
+    user_tokens = await provider.count_tokens(content)
+    user_message = Message(
+        conversation_id=conversation_id,
+        role=MessageRole.USER,
+        content=content,
+        tokens=user_tokens,
+        parts=[{"text": content}]
+    )
+    
+    pending_messages = [user_message]
+    current_history = sliced_history.copy()
+    current_history.append(user_message)
+    
+    final_model_message = None
+    
+    for i in range(MAX_TOOL_LOOP_ITERATIONS):
+        response = await provider.generate_response(
+            current_history,
+            summary=conversation.summary,
+            rag_context=rag_context or None
+        )
+        
+        if response.tool_calls:
+            tool_calls_json = [{"name": tc.name, "args": tc.args} for tc in response.tool_calls]
+            parts_json = response.parts
+                
+            model_message = Message(
+                conversation_id=conversation_id,
+                role=MessageRole.MODEL,
+                content=response.content,
+                tool_calls=tool_calls_json,
+                parts=parts_json,
+                tokens=await provider.count_tokens(response.content) if response.content else 0
+            )
+            pending_messages.append(model_message)
+            current_history.append(model_message)
+            
+            for tc in response.tool_calls:
+                result_str = await execute_tool(db, tc.name, tc.args)
+                
+                parts_list = provider.format_tool_response(tc.name, result_str)
+                
+                tool_msg = Message(
+                    conversation_id=conversation_id,
+                    role=MessageRole.TOOL,
+                    content=result_str,
+                    tool_name=tc.name,
+                    parts=parts_list,
+                    tokens=await provider.count_tokens(result_str)
+                )
+                pending_messages.append(tool_msg)
+                current_history.append(tool_msg)
+        else:
+            # Final text turn: Stream the response content
+            accumulated_content = []
+            
+            async for chunk in provider.generate_response_stream(
+                current_history,
+                summary=conversation.summary,
+                rag_context=rag_context or None
+            ):
+                if chunk:
+                    accumulated_content.append(chunk)
+                    yield chunk
+            
+            final_text = "".join(accumulated_content)
+            final_model_message = Message(
+                conversation_id=conversation_id,
+                role=MessageRole.MODEL,
+                content=final_text,
+                parts=[{"text": final_text}],
+                tokens=await provider.count_tokens(final_text) if final_text else 0
+            )
+            pending_messages.append(final_model_message)
+            break
+            
+    if not final_model_message:
+        final_model_message = pending_messages[-1]
+        
+    for msg in pending_messages:
+        db.add(msg)
+    await db.commit()
