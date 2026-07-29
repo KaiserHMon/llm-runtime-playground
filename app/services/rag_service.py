@@ -4,8 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from sqlalchemy.orm import joinedload
 
-from app.models.chat import Document, DocumentChunk
-from app.services.llm import client
+from google import genai
+from app.core.config import settings
+from app.models.document import Document, DocumentChunk
+
+client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 def split_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
     """

@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.schemas.document import DocumentUpload, DocumentResponse
-from app.models.chat import Document
+from app.models.document import Document
 from app.services.rag_service import ingest_document
 
 router = APIRouter(prefix="/documents", tags=["Documents"])

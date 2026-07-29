@@ -28,16 +28,17 @@ async def create_conversation(payload: ConversationCreate, db: AsyncSession = De
 
 @router.post("/{conversation_id}/messages", response_model=MessageResponse)
 async def send_message(conversation_id: str, payload: MessageCreate, db: AsyncSession = Depends(get_db)):
-    """Sends a user message, calls Gemini, and returns the model's response."""
+    """Sends a user message, calls LLM, and returns the model's response."""
     try:
         model_message = await process_chat_message(
             db=db, 
             conversation_id=conversation_id, 
-            content=payload.content
+            content=payload.content,
+            provider_name=payload.provider
         )
         return model_message
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         # Avoid leaking raw exceptions in production, but good for local debugging MVP
         raise HTTPException(status_code=500, detail=f"LLM Error: {str(e)}")
@@ -50,7 +51,8 @@ async def send_message_stream(conversation_id: str, payload: MessageCreate, db: 
             stream_chat_message(
                 db=db, 
                 conversation_id=conversation_id, 
-                content=payload.content
+                content=payload.content,
+                provider_name=payload.provider
             ),
             media_type="text/event-stream"
         )

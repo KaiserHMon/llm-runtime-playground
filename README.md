@@ -13,6 +13,7 @@ Instead of relying on heavy abstraction frameworks (like LangChain or LlamaIndex
 3. **Decoupled Native Tool Calling Loop**: Native Python functions (in [tools.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/tools.py)) are registered as tools. A custom orchestrator handles the multi-turn loop. To prevent schema generation failures on backend parameters (like `db: AsyncSession`), argument validation signatures are parsed using `inspect.signature` to filter out internal parameters before sending schemas to Gemini, injecting the dependencies dynamically at execution time.
 4. **Binary thought_signature Handling**: Modern Gemini models output reasoning paths as raw binary bytes. We leverage Pydantic V2's `model_dump(mode="json")` to serialize these fields seamlessly as Base64 strings for SQLite JSON storage, reversing the process transparently during model validation.
 5. **RAG Text Chunking & In-Memory Vector Search**: In [rag_service.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/rag_service.py), documents are split using a **Recursive Character Text Splitter** with custom overlap (500 characters chunk size, 100 characters overlap) to preserve sentence cohesion. Embeddings are generated concurrently via `asyncio.gather` and searched using a pure-Python cosine similarity computation over SQLite-stored vectors.
+6. **Multi-Provider LLM Factory**: Under [services/](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/), an abstract `LLMProvider` interface decouples the core chat orchestrator from vendor-specific SDK libraries. The global `LLMFactory` registry maps dynamic payloads (e.g. `gemini` or a local non-networked `mock`) to their concrete integrations, facilitating offline testing, modular migrations, and multi-model routing.
 
 ---
 
@@ -34,7 +35,10 @@ llm-runtime-playground/
 │   │   └── document.py   # Document upload/response data validations
 │   └── services/         # Business Logic Layer
 │       ├── chat_service.py # Orchestrates history pruning, summarization & tool loops
-│       ├── llm.py          # Direct Google GenAI API client and prompt construction
+│       ├── llm_base.py     # Base abstract LLMProvider and response definitions
+│       ├── llm_factory.py  # Central provider registry and factory resolver
+│       ├── llm_gemini.py   # Gemini provider implementation using google-genai SDK
+│       ├── llm_mock.py     # Local mock provider for fast offline simulation
 │       ├── rag_service.py  # Text splitting, embedding generation & search
 │       └── tools.py        # Custom python utility functions declared as LLM tools
 ├── tests/                # Test suites & unit testing capabilities
@@ -134,8 +138,8 @@ Open your browser and navigate to the interactive OpenAPI documentation:
 | :--- | :--- | :--- | :--- |
 | `/conversations` | `POST` | `{"title": "Optional Title"}` | Creates a new empty conversation thread. |
 | `/conversations/{id}` | `GET` | *None* | Retrieves a conversation including its full sorted message history. |
-| `/conversations/{id}/messages` | `POST` | `{"content": "Your message"}` | Sends a message, executes retrieval, runs tool calling loop, and returns the response. |
-| `/conversations/{id}/messages/stream` | `POST` | `{"content": "Your message"}` | Streams the response chunks in real-time. |
+| `/conversations/{id}/messages` | `POST` | `{"content": "Your message", "provider": "optional"}` | Sends a message, executes retrieval, runs tool calling loop, and returns the response. Supports specifying the provider (`gemini` or `mock`). |
+| `/conversations/{id}/messages/stream` | `POST` | `{"content": "Your message", "provider": "optional"}` | Streams the response chunks in real-time. |
 
 ### Documents (RAG Ingestion)
 

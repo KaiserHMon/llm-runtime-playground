@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.chat import Conversation, Message, MessageRole
-from app.services.llm import generate_response, count_tokens, summarize_messages
+from app.services.llm_factory import factory
+from app.services.llm_base import LLMProvider
 from app.services.tools import registry
 from app.services.rag_service import search_chunks
 
@@ -12,17 +13,19 @@ TOKEN_BUDGET = 4000
 TOKEN_BUFFER_PER_MESSAGE = 20
 MAX_TOOL_LOOP_ITERATIONS = 5
 
-async def ensure_message_tokens_and_slice(db: AsyncSession, history: list[Message]) -> list[Message]:
+async def ensure_message_tokens_and_slice(
+    db: AsyncSession, history: list[Message], provider: LLMProvider
+) -> list[Message]:
     """
     Ensures all messages in history have a valid `tokens` count (populating missing ones
-    using Gemini API count_tokens or fallback len(content)//4), updates the database,
+    using the provider's count_tokens or fallback len(content)//4), updates the database,
     and returns the sliced history that fits within the 4000 token budget (with 20 tokens safety buffer per message).
     """
     # 1. Fill in missing tokens
     missing_msgs = [msg for msg in history if msg.tokens is None]
     if missing_msgs:
         try:
-            token_counts = await asyncio.gather(*(count_tokens(msg.content or "") for msg in missing_msgs))
+            token_counts = await asyncio.gather(*(provider.count_tokens(msg.content or "") for msg in missing_msgs))
             for msg, count in zip(missing_msgs, token_counts):
                 msg.tokens = count
             await db.commit()
@@ -53,7 +56,9 @@ async def ensure_message_tokens_and_slice(db: AsyncSession, history: list[Messag
     sliced_history.reverse()
     return sliced_history
 
-async def get_active_history(db: AsyncSession, conversation_id: str) -> tuple[list[Message], Conversation]:
+async def get_active_history(
+    db: AsyncSession, conversation_id: str, provider: LLMProvider
+) -> tuple[list[Message], Conversation]:
     """
     Validates conversation existence, fetches chronological history,
     ensures token counts are populated, and slices it to fit the token budget.
@@ -70,7 +75,7 @@ async def get_active_history(db: AsyncSession, conversation_id: str) -> tuple[li
     )
     history = list(history_result.all())
 
-    sliced_history = await ensure_message_tokens_and_slice(db, history)
+    sliced_history = await ensure_message_tokens_and_slice(db, history, provider)
 
     # Incremental Summarization logic
     if history:
@@ -100,7 +105,7 @@ async def get_active_history(db: AsyncSession, conversation_id: str) -> tuple[li
                 messages_to_summarize = history[:oldest_sliced_idx]
 
         if messages_to_summarize:
-            new_summary = await summarize_messages(conversation.summary, messages_to_summarize)
+            new_summary = await provider.summarize_messages(conversation.summary, messages_to_summarize)
             conversation.summary = new_summary
             conversation.last_summarized_message_id = messages_to_summarize[-1].id
             db.add(conversation)
@@ -139,12 +144,13 @@ async def execute_tool(db: AsyncSession, tool_name: str, args: dict) -> str:
         return f"Error executing tool {tool_name}: {str(e)}"
 
 
-
-async def process_chat_message(db: AsyncSession, conversation_id: str, content: str) -> Message:
+async def process_chat_message(
+    db: AsyncSession, conversation_id: str, content: str, provider_name: str | None = None
+) -> Message:
     """
     Orchestrates the chat turn flow with manual tool execution loops.
     
-    This manages a multi-turn conversation turn sequence using Gemini API.
+    This manages a multi-turn conversation turn sequence using the selected LLM provider.
     If the model generates a function call turn (MODEL role), this backend intercepts it,
     executes the requested tool functions, and appends the result turn (TOOL role)
     to the history, continuing the cycle until the model generates a final text response.
@@ -152,7 +158,8 @@ async def process_chat_message(db: AsyncSession, conversation_id: str, content: 
     All messages (user prompt, intermediate tool requests, tool outputs, and final text)
     are saved to the database in a single atomic commit at the end.
     """
-    sliced_history, conversation = await get_active_history(db, conversation_id)
+    provider = factory.get_provider(provider_name)
+    sliced_history, conversation = await get_active_history(db, conversation_id, provider)
     
     # Retrieve relevant RAG context
     chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5)
@@ -164,7 +171,7 @@ async def process_chat_message(db: AsyncSession, conversation_id: str, content: 
             formatted_chunks.append(f"[{idx}] (Source: {source_name}): {chunk.content}")
         rag_context = "\n\n".join(formatted_chunks)
     
-    user_tokens = await count_tokens(content)
+    user_tokens = await provider.count_tokens(content)
     user_message = Message(
         conversation_id=conversation_id,
         role=MessageRole.USER,
@@ -180,54 +187,50 @@ async def process_chat_message(db: AsyncSession, conversation_id: str, content: 
     final_model_message = None
     
     for i in range(MAX_TOOL_LOOP_ITERATIONS):
-        response = await generate_response(
+        response = await provider.generate_response(
             current_history,
             summary=conversation.summary,
             rag_context=rag_context or None
         )
         
-        if response.function_calls:
-            tool_calls_json = [{"name": fc.name, "args": fc.args} for fc in response.function_calls]
-            parts_json = [p.model_dump(mode="json") for p in response.candidates[0].content.parts]
+        if response.tool_calls:
+            tool_calls_json = [{"name": tc.name, "args": tc.args} for tc in response.tool_calls]
+            parts_json = response.parts
                 
             model_message = Message(
                 conversation_id=conversation_id,
                 role=MessageRole.MODEL,
-                content=response.text,
+                content=response.content,
                 tool_calls=tool_calls_json,
                 parts=parts_json,
-                tokens=await count_tokens(response.text) if response.text else 0
+                tokens=await provider.count_tokens(response.content) if response.content else 0
             )
             pending_messages.append(model_message)
             current_history.append(model_message)
             
-            for fc in response.function_calls:
-                result_str = await execute_tool(db, fc.name, fc.args)
+            for tc in response.tool_calls:
+                result_str = await execute_tool(db, tc.name, tc.args)
                 
-                from google.genai import types
-                part_dict = types.Part.from_function_response(
-                    name=fc.name,
-                    response={"result": result_str}
-                ).model_dump(mode="json")
+                parts_list = provider.format_tool_response(tc.name, result_str)
                 
                 tool_msg = Message(
                     conversation_id=conversation_id,
                     role=MessageRole.TOOL,
                     content=result_str,
-                    tool_name=fc.name,
-                    parts=[part_dict],
-                    tokens=await count_tokens(result_str)
+                    tool_name=tc.name,
+                    parts=parts_list,
+                    tokens=await provider.count_tokens(result_str)
                 )
                 pending_messages.append(tool_msg)
                 current_history.append(tool_msg)
         else:
-            parts_json = [p.model_dump(mode="json") for p in response.candidates[0].content.parts]
+            parts_json = response.parts
             final_model_message = Message(
                 conversation_id=conversation_id,
                 role=MessageRole.MODEL,
-                content=response.text,
+                content=response.content,
                 parts=parts_json,
-                tokens=await count_tokens(response.text) if response.text else 0
+                tokens=await provider.count_tokens(response.content) if response.content else 0
             )
             pending_messages.append(final_model_message)
             break
@@ -241,11 +244,11 @@ async def process_chat_message(db: AsyncSession, conversation_id: str, content: 
     await db.refresh(final_model_message)
     return final_model_message
 
-async def stream_chat_message(db: AsyncSession, conversation_id: str, content: str):
+async def stream_chat_message(db: AsyncSession, conversation_id: str, content: str, provider_name: str | None = None):
     # Streaming with tools is complex because we may need to execute tools mid-stream.
     # For this MVP phase, we run the same execution loop without chunking, 
     # but yield the final text response chunks to satisfy the stream interface.
-    final_message = await process_chat_message(db, conversation_id, content)
+    final_message = await process_chat_message(db, conversation_id, content, provider_name=provider_name)
     if final_message.content:
         # yield artificial chunks to satisfy the API
         chunk_size = 20

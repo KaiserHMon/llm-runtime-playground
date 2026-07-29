@@ -9,6 +9,7 @@ from app.models.chat import MessageRole
 class MessageCreate(BaseModel):
     """Payload sent by the user to the chat endpoint."""
     content: str = Field(..., description="The text content of the message")
+    provider: str | None = Field(default=None, description="Optional LLM provider to use for this request")
 
 class MessageResponse(BaseModel):
     """Response model returned by the API for a message."""
