@@ -4,8 +4,13 @@ from app.core.database import Base, engine
 from app.api.chat import router as chat_router
 from app.api.documents import router as documents_router
 
+from app.services.rag_service import init_qdrant
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize Qdrant collection
+    await init_qdrant()
+    
     # Initialize database tables asynchronously
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

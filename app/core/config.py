@@ -3,6 +3,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     PROJECT_NAME: str = "LLM runtime playground"
     GEMINI_API_KEY: str
+    
+    QDRANT_PATH: str = "qdrant_storage"
+    QDRANT_URL: str | None = None
+    QDRANT_API_KEY: str | None = None
 
     # Pydantic V2 config to read from .env file
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
