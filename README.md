@@ -15,8 +15,10 @@ Instead of relying on heavy abstraction frameworks (like LangChain or LlamaIndex
 5. **RAG Text Chunking & Vector Search (Qdrant)**: In [rag_service.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/rag_service.py), documents are split using a **Recursive Character Text Splitter** with custom overlap (500 characters chunk size, 100 characters overlap) to preserve sentence cohesion. Embeddings are generated concurrently via `asyncio.gather` and searched semantically using a Qdrant Vector DB instance (supporting in-memory, disk path, or cloud endpoints), mapped with SQLite document chunk metadata.
 6. **Multi-Provider LLM Factory**: Under [services/](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/), an abstract `LLMProvider` interface decouples the core chat orchestrator from vendor-specific SDK libraries. The global `LLMFactory` registry maps dynamic payloads (e.g. `gemini` or a local non-networked `mock`) to their concrete integrations, facilitating offline testing, modular migrations, and multi-model routing.
 7. **Real-time LLM Response Streaming**: Support for Server-Sent Events (SSE) allows streaming the final model turn chunk-by-chunk to the client in real-time. Intermediate tool loops run synchronously on the backend, and once the final answer turn begins, response chunks are yielded directly from the provider, committing all turn messages atomically at the end.
+8. **Intelligent Semantic Routing**: Before fetching document chunks (RAG) blindly for every message, a dedicated classification router classifies queries into `RAG` or `CHAT` in [router.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/llm/router.py). The classification leverages Gemini's native **Structured Outputs** via Pydantic (`RoutingDecision`) at temperature `0.0` for deterministic routing, incorporating the last 10 messages of conversation history to handle follow-up queries contextually.
 
 ---
+
 
 ## Project Structure
 
@@ -44,8 +46,10 @@ llm-runtime-playground/
 │       │   ├── base.py   # Base abstract LLMProvider definition
 │       │   ├── factory.py # Central LLM registry and resolver
 │       │   ├── gemini.py # Gemini LLM provider implementation
-│       │   └── mock.py   # Local mock provider for offline chat
+│       │   ├── mock.py   # Local mock provider for offline chat
+│       │   └── router.py # Semantic router & Pydantic classification schema
 │       ├── chat_service.py # Orchestrates history pruning, summarization & tool loops
+
 │       ├── rag_service.py  # Text splitting, database mapping & Qdrant query routing
 │       └── tools.py        # Custom python utility functions declared as LLM tools
 ├── tests/                # Test suites & unit testing capabilities
@@ -72,15 +76,24 @@ sequenceDiagram
     Client->>API: POST /conversations/{id}/messages (content)
     API->>ChatService: process_chat_message(db, conversation_id, content)
     
-    rect rgb(240, 240, 240)
-        Note over ChatService, RAG: Step 1: Semantic Retrieval (RAG)
-        ChatService->>RAG: search_chunks(db, query, conversation_id)
-        RAG->>LLM: get_embedding(query)
-        LLM-->>RAG: Float Vector
-        RAG->>DB: Query chunks
-        DB-->>RAG: Chunks List
-        RAG-->>ChatService: Top-K matching chunks
+    rect rgb(255, 240, 245)
+        Note over ChatService, LLM: Step 1: Semantic Routing
+        ChatService->>LLM: route_message(content, history)
+        LLM-->>ChatService: RoutingDecision ("RAG" or "CHAT")
     end
+    
+    opt Route is RAG
+        rect rgb(240, 240, 240)
+            Note over ChatService, RAG: Step 2: Semantic Retrieval (RAG)
+            ChatService->>RAG: search_chunks(db, query, conversation_id)
+            RAG->>LLM: get_embedding(query)
+            LLM-->>RAG: Float Vector
+            RAG->>DB: Query chunks
+            DB-->>RAG: Chunks List
+            RAG-->>ChatService: Top-K matching chunks
+        end
+    end
+
 
     rect rgb(230, 245, 230)
         Note over ChatService, DB: Step 2: Context Reconstruction & Eviction

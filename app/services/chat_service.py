@@ -9,6 +9,8 @@ from app.services.llm import factory
 from app.services.llm.base import LLMProvider
 from app.services.tools import registry
 from app.services.rag_service import search_chunks
+from app.services.llm.router import route_message
+
 
 def estimate_message_tokens(msg: Message) -> int:
     """
@@ -173,16 +175,19 @@ async def process_chat_message(
     provider = factory.get_provider(provider_name)
     sliced_history, conversation = await get_active_history(db, conversation_id, provider)
     
-    # Retrieve relevant RAG context
-    emb_provider = "mock" if provider_name == "mock" else None
-    chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
+    # Determine the route and conditionally retrieve RAG context
+    route = await route_message(content, history=sliced_history, provider_name=provider_name)
     rag_context = ""
-    if chunks:
-        formatted_chunks = []
-        for idx, chunk in enumerate(chunks, 1):
-            source_name = chunk.document.name if chunk.document else "Unknown"
-            formatted_chunks.append(f"[{idx}] (Source: {source_name}): {chunk.content}")
-        rag_context = "\n\n".join(formatted_chunks)
+    if route == "RAG":
+        emb_provider = "mock" if provider_name == "mock" else None
+        chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
+        if chunks:
+            formatted_chunks = []
+            for idx, chunk in enumerate(chunks, 1):
+                source_name = chunk.document.name if chunk.document else "Unknown"
+                formatted_chunks.append(f"[{idx}] (Source: {source_name}): {chunk.content}")
+            rag_context = "\n\n".join(formatted_chunks)
+
     
     user_tokens = await provider.count_tokens(content)
     user_message = Message(
@@ -270,16 +275,19 @@ async def stream_chat_message(db: AsyncSession, conversation_id: str, content: s
     provider = factory.get_provider(provider_name)
     sliced_history, conversation = await get_active_history(db, conversation_id, provider)
     
-    # Retrieve relevant RAG context
-    emb_provider = "mock" if provider_name == "mock" else None
-    chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
+    # Determine the route and conditionally retrieve RAG context
+    route = await route_message(content, history=sliced_history, provider_name=provider_name)
     rag_context = ""
-    if chunks:
-        formatted_chunks = []
-        for idx, chunk in enumerate(chunks, 1):
-            source_name = chunk.document.name if chunk.document else "Unknown"
-            formatted_chunks.append(f"[{idx}] (Source: {source_name}): {chunk.content}")
-        rag_context = "\n\n".join(formatted_chunks)
+    if route == "RAG":
+        emb_provider = "mock" if provider_name == "mock" else None
+        chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
+        if chunks:
+            formatted_chunks = []
+            for idx, chunk in enumerate(chunks, 1):
+                source_name = chunk.document.name if chunk.document else "Unknown"
+                formatted_chunks.append(f"[{idx}] (Source: {source_name}): {chunk.content}")
+            rag_context = "\n\n".join(formatted_chunks)
+
     
     user_tokens = await provider.count_tokens(content)
     user_message = Message(

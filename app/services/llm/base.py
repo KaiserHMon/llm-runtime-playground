@@ -59,3 +59,11 @@ class LLMProvider(ABC):
         Formats a tool execution result into the provider's specific message parts representation.
         """
         pass
+
+    @abstractmethod
+    async def route_message(self, content: str, history: List[DBMessage] | None = None) -> str:
+        """
+        Decides whether the message should be routed to 'RAG' or 'CHAT'.
+        """
+        pass
+

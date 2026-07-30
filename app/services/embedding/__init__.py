@@ -1,1 +1,1 @@
-from .factory import embedding_factory
+from .factory import embedding_factory as embedding_factory

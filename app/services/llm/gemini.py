@@ -249,3 +249,49 @@ Be concise and direct in your answers."""
             response={"result": result}
         ).model_dump(mode="json")
         return [part_dict]
+
+    async def route_message(self, content: str, history: List[DBMessage] | None = None) -> str:
+        from app.services.llm.router import RoutingDecision
+        
+        formatted_history = ""
+        if history:
+            history_lines = []
+            for msg in history[-10:]:
+                role_label = "USER" if msg.role == MessageRole.USER else "MODEL"
+                if msg.role == MessageRole.TOOL:
+                    role_label = f"TOOL ({msg.tool_name})"
+                msg_content = msg.content or ""
+                history_lines.append(f"[{role_label}]: {msg_content}")
+            formatted_history = "\n".join(history_lines)
+            
+        prompt = (
+            "You are an expert routing classifier.\n"
+            "Analyze the conversation history and the user query to decide if we need to retrieve external documents/context (RAG) or if it's a general conversational query (CHAT).\n\n"
+            "Rules:\n"
+            "- Select RAG if the query or conversation flow requires reading retrieved files, documents, passphrases, codes, or private project details.\n"
+            "- Select CHAT for greetings, general programming questions, explanation of broad concepts, or basic conversation.\n\n"
+        )
+        if formatted_history:
+            prompt += f"Recent Conversation History:\n{formatted_history}\n\n"
+            
+        prompt += f'User Query: "{content}"'
+        
+        try:
+            response = await self.client.aio.models.generate_content(
+                model=self.model_id,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=RoutingDecision,
+                    temperature=0.0,
+                )
+            )
+            if response.text:
+                import json
+                data = json.loads(response.text.strip())
+                return data.get("route", "CHAT")
+        except Exception:
+            return "CHAT"
+            
+        return "CHAT"
+

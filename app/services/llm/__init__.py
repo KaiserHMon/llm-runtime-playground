@@ -1,1 +1,1 @@
-from .factory import factory
+from .factory import factory as factory

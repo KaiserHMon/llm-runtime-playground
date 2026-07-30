@@ -78,3 +78,18 @@ class MockProvider(LLMProvider):
     def format_tool_response(self, tool_name: str, result: str) -> List[Dict[str, Any]]:
         # Return a simple mock part representing the tool result
         return [{"text": f"[Mock Tool Response for {tool_name}]: {result}"}]
+
+    async def route_message(self, content: str, history: List[DBMessage] | None = None) -> str:
+        # Check current content and history content for RAG-related terms
+        keywords = ["code", "passphrase", "antigravity", "secreto", "secret", "ventilación", "ventilation"]
+        text_to_check = content.lower()
+        if any(kw in text_to_check for kw in keywords):
+            return "RAG"
+        
+        if history:
+            for msg in history:
+                if msg.content and any(kw in msg.content.lower() for kw in keywords):
+                    return "RAG"
+                    
+        return "CHAT"
+
