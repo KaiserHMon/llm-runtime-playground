@@ -22,7 +22,13 @@ async def test_rag_database_operations(db_session):
         "Only personnel with Level 5 clearance are permitted to access the chamber.\n"
         "The secondary code for the ventilation system is vent-5544."
     )
-    document = await ingest_document(db_session, name=doc_name, content=doc_content, conversation_id=conversation.id)
+    document = await ingest_document(
+        db_session, 
+        name=doc_name, 
+        content=doc_content, 
+        conversation_id=conversation.id,
+        embedding_provider="mock"
+    )
     assert document.id is not None
 
     # Verify chunks exist in db
@@ -32,7 +38,13 @@ async def test_rag_database_operations(db_session):
 
     # 3. Search chunks semantic test
     query = "What is the master security code for the quantum generator?"
-    found_chunks = await search_chunks(db_session, query=query, conversation_id=conversation.id, top_k=2)
+    found_chunks = await search_chunks(
+        db_session, 
+        query=query, 
+        conversation_id=conversation.id, 
+        top_k=2,
+        embedding_provider="mock"
+    )
     assert len(found_chunks) > 0
     assert any("quantum-antigravity-9988" in c.content for c in found_chunks)
 
@@ -73,7 +85,8 @@ async def test_rag_http_endpoints(api_client):
     upload_payload = {
         "name": "api_test_doc.txt",
         "content": "This is a document uploaded via the HTTP API. The key passphrase is banana-split-100.",
-        "conversation_id": None
+        "conversation_id": None,
+        "embedding_provider": "mock"
     }
     response = await api_client.post("/documents/upload", json=upload_payload)
     assert response.status_code == 200

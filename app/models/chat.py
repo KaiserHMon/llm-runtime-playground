@@ -35,7 +35,10 @@ class Conversation(Base):
     last_summarized_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     messages: Mapped[list["Message"]] = relationship(
-        "Message", back_populates="conversation", cascade="all, delete-orphan"
+        "Message", 
+        back_populates="conversation", 
+        cascade="all, delete-orphan",
+        order_by="Message.created_at"
     )
     document_chunks: Mapped[list["DocumentChunk"]] = relationship(
         "DocumentChunk", back_populates="conversation", cascade="all, delete-orphan"

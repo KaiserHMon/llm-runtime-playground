@@ -3,23 +3,35 @@ import inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.chat import Conversation, Message, MessageRole
-from app.services.llm_factory import factory
-from app.services.llm_base import LLMProvider
+from app.services.llm import factory
+from app.services.llm.base import LLMProvider
 from app.services.tools import registry
 from app.services.rag_service import search_chunks
 
-TOKEN_BUDGET = 4000
-TOKEN_BUFFER_PER_MESSAGE = 20
-MAX_TOOL_LOOP_ITERATIONS = 5
+def estimate_message_tokens(msg: Message) -> int:
+    """
+    Estimates the number of tokens in a message as a fallback.
+    Inspects `content` first, then falls back to serializing `parts` if content is empty/null.
+    """
+    if msg.content:
+        return len(msg.content) // 4
+    if msg.parts:
+        try:
+            import json
+            return len(json.dumps(msg.parts)) // 4
+        except Exception:
+            return len(str(msg.parts)) // 4
+    return 0
 
 async def ensure_message_tokens_and_slice(
     db: AsyncSession, history: list[Message], provider: LLMProvider
 ) -> list[Message]:
     """
     Ensures all messages in history have a valid `tokens` count (populating missing ones
-    using the provider's count_tokens or fallback len(content)//4), updates the database,
-    and returns the sliced history that fits within the 4000 token budget (with 20 tokens safety buffer per message).
+    using the provider's count_tokens or fallback estimation), updates the database,
+    and returns the sliced history that fits within the configured token budget.
     """
     # 1. Fill in missing tokens
     missing_msgs = [msg for msg in history if msg.tokens is None]
@@ -30,23 +42,23 @@ async def ensure_message_tokens_and_slice(
                 msg.tokens = count
             await db.commit()
         except Exception:
-            # Fallback to len // 4
+            # Fallback to robust token estimation logic
             for msg in missing_msgs:
-                msg.tokens = len(msg.content) // 4 if msg.content else 0
+                msg.tokens = estimate_message_tokens(msg)
             try:
                 await db.commit()
             except Exception:
                 pass
 
-    # 2. Slice history from the newest end to fit within 4000 tokens budget (including 20 tokens safety buffer per message)
+    # 2. Slice history from the newest end to fit within the configured token budget
     current_sum = 0
     sliced_history = []
     
     # We iterate from the newest (end of list) to oldest
     for msg in reversed(history):
-        msg_tokens = msg.tokens if msg.tokens is not None else (len(msg.content) // 4 if msg.content else 0)
-        cost = msg_tokens + TOKEN_BUFFER_PER_MESSAGE
-        if current_sum + cost <= TOKEN_BUDGET:
+        msg_tokens = msg.tokens if msg.tokens is not None else estimate_message_tokens(msg)
+        cost = msg_tokens + settings.TOKEN_BUFFER_PER_MESSAGE
+        if current_sum + cost <= settings.TOKEN_BUDGET:
             current_sum += cost
             sliced_history.append(msg)
         else:
@@ -162,7 +174,8 @@ async def process_chat_message(
     sliced_history, conversation = await get_active_history(db, conversation_id, provider)
     
     # Retrieve relevant RAG context
-    chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5)
+    emb_provider = "mock" if provider_name == "mock" else None
+    chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
     rag_context = ""
     if chunks:
         formatted_chunks = []
@@ -186,7 +199,7 @@ async def process_chat_message(
     
     final_model_message = None
     
-    for i in range(MAX_TOOL_LOOP_ITERATIONS):
+    for i in range(settings.MAX_TOOL_LOOP_ITERATIONS):
         response = await provider.generate_response(
             current_history,
             summary=conversation.summary,
@@ -258,7 +271,8 @@ async def stream_chat_message(db: AsyncSession, conversation_id: str, content: s
     sliced_history, conversation = await get_active_history(db, conversation_id, provider)
     
     # Retrieve relevant RAG context
-    chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5)
+    emb_provider = "mock" if provider_name == "mock" else None
+    chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
     rag_context = ""
     if chunks:
         formatted_chunks = []
@@ -282,7 +296,7 @@ async def stream_chat_message(db: AsyncSession, conversation_id: str, content: s
     
     final_model_message = None
     
-    for i in range(MAX_TOOL_LOOP_ITERATIONS):
+    for i in range(settings.MAX_TOOL_LOOP_ITERATIONS):
         response = await provider.generate_response(
             current_history,
             summary=conversation.summary,

@@ -5,14 +5,23 @@ from google.genai import types
 from app.core.config import settings
 from app.models.chat import Message as DBMessage, MessageRole
 from app.services.tools import registry
-from app.services.llm_base import LLMProvider, LLMResponse, ToolCall
+from app.services.llm.base import LLMProvider, LLMResponse, ToolCall
 
 class GeminiProvider(LLMProvider):
     def __init__(self, model_id: str = "gemini-flash-lite-latest"):
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        self._client = None
         self.model_id = model_id
         self.system_prompt = """You are a helpful AI assistant.
 Be concise and direct in your answers."""
+
+    @property
+    def client(self) -> genai.Client:
+        if self._client is None:
+            api_key = settings.GEMINI_API_KEY
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY is not configured. Cannot call Gemini Chat API.")
+            self._client = genai.Client(api_key=api_key)
+        return self._client
 
     def _get_tools(self) -> list[types.Tool]:
         """

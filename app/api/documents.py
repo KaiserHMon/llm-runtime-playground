@@ -21,7 +21,13 @@ async def upload_document(
     """
     cid = payload.conversation_id or conversation_id
     try:
-        doc = await ingest_document(db, name=payload.name, content=payload.content, conversation_id=cid)
+        doc = await ingest_document(
+            db, 
+            name=payload.name, 
+            content=payload.content, 
+            conversation_id=cid,
+            embedding_provider=payload.embedding_provider
+        )
         return doc
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to ingest document: {str(e)}")

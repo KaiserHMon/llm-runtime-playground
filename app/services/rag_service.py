@@ -4,13 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from google import genai
 from app.core.config import settings
 from app.models.document import Document, DocumentChunk
+from app.services.embedding import embedding_factory
 
 from qdrant_client import AsyncQdrantClient, models
-
-client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 # Initialize Qdrant Client
 if settings.QDRANT_URL:
@@ -104,33 +102,20 @@ def split_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str
 
     return _split(text, delimiters)
 
-async def get_embedding(text: str) -> list[float]:
+async def get_embedding(text: str, provider_name: str | None = None) -> list[float]:
     """
-    Asynchronously retrieves the embedding of the input text using Gemini's embedding model.
-    Defaults to gemini-embedding-2 and falls back to gemini-embedding-001 if needed.
+    Asynchronously retrieves the embedding of the input text using the configured embedding provider.
     """
-    if not text:
-        return []
-    
-    try:
-        response = await client.aio.models.embed_content(
-            model="gemini-embedding-2",
-            contents=text
-        )
-        if response.embeddings and response.embeddings[0].values is not None:
-            return response.embeddings[0].values[:768]
-    except Exception:
-        # Fall back to gemini-embedding-001 if gemini-embedding-2 is not available
-        response = await client.aio.models.embed_content(
-            model="gemini-embedding-001",
-            contents=text
-        )
-        if response.embeddings and response.embeddings[0].values is not None:
-            return response.embeddings[0].values[:768]
-            
-    raise ValueError("Failed to retrieve embedding values from Gemini API response.")
+    provider = embedding_factory.get_provider(provider_name)
+    return await provider.get_embedding(text)
 
-async def search_chunks(db: AsyncSession, query: str, conversation_id: str | None = None, top_k: int = 5) -> list[DocumentChunk]:
+async def search_chunks(
+    db: AsyncSession,
+    query: str,
+    conversation_id: str | None = None,
+    top_k: int = 5,
+    embedding_provider: str | None = None
+) -> list[DocumentChunk]:
     """
     Searches document chunks matching the query.
     Filters chunks where conversation_id IS NULL OR conversation_id == current.
@@ -139,7 +124,7 @@ async def search_chunks(db: AsyncSession, query: str, conversation_id: str | Non
     if not query:
         return []
         
-    query_emb = await get_embedding(query)
+    query_emb = await get_embedding(query, provider_name=embedding_provider)
     
     filter_condition = models.Filter(
         should=[
@@ -203,7 +188,13 @@ async def delete_document(db: AsyncSession, name: str) -> bool:
     await db.delete(doc)
     return True
 
-async def ingest_document(db: AsyncSession, name: str, content: str, conversation_id: str | None = None) -> Document:
+async def ingest_document(
+    db: AsyncSession,
+    name: str,
+    content: str,
+    conversation_id: str | None = None,
+    embedding_provider: str | None = None
+) -> Document:
     """
     Ingests a document. First removes any existing document with the same name (cascade deletes chunks),
     splits content, generates embeddings concurrently, creates database records, and commits.
@@ -220,7 +211,7 @@ async def ingest_document(db: AsyncSession, name: str, content: str, conversatio
         # Generate embeddings in parallel
         embeddings = []
         if chunks:
-            embeddings = await asyncio.gather(*(get_embedding(chunk) for chunk in chunks))
+            embeddings = await asyncio.gather(*(get_embedding(chunk, provider_name=embedding_provider) for chunk in chunks))
             
         # Create Document and DocumentChunk database entries
         db_doc = Document(name=name, content=content)

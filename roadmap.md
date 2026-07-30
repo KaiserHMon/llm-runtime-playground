@@ -4,11 +4,11 @@ This roadmap outlines best practices and refactoring opportunities to improve ro
 
 ## Priority Tasks
 
-- [ ] **Decouple Test Suite from live LLM APIs**: Mock Gemini's embedding models in RAG tests to make the test suite fully offline-capable.
-- [ ] **Make LLM API Keys Optional at Startup**: Set up fallback dummy keys during local/mock tests to prevent initialization crashes when API keys are not configured.
-- [ ] **Add Explicit Message Ordering in Database**: Ensure the `Conversation.messages` relationship uses an explicit `order_by` clause to prevent scrambled histories.
-- [ ] **Extract Constants to Core Configuration**: Move all hardcoded variables (like `TOKEN_BUDGET` and `MAX_TOOL_LOOP_ITERATIONS`) to [config.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/core/config.py).
-- [ ] **Improve Token Count Fallback Logic**: Adapt token estimation fallback to inspect message `parts` when `content` is null, preventing massive underestimations for tool turns.
+- [x] **Decouple Test Suite from live LLM APIs**: Mock Gemini's embedding models in RAG tests to make the test suite fully offline-capable.
+- [x] **Make LLM API Keys Optional at Startup**: Set up fallback dummy keys during local/mock tests to prevent initialization crashes when API keys are not configured.
+- [x] **Add Explicit Message Ordering in Database**: Ensure the `Conversation.messages` relationship uses an explicit `order_by` clause to prevent scrambled histories.
+- [x] **Extract Constants to Core Configuration**: Move all hardcoded variables (like `TOKEN_BUDGET` and `MAX_TOOL_LOOP_ITERATIONS`) to [config.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/core/config.py).
+- [x] **Improve Token Count Fallback Logic**: Adapt token estimation fallback to inspect message `parts` when `content` is null, preventing massive underestimations for tool turns.
 
 ---
 
@@ -25,6 +25,6 @@ This roadmap outlines best practices and refactoring opportunities to improve ro
 ## Verification Checklist
 
 Reviewers can verify implementation of these items:
-- [ ] Pytest passes completely without active internet connection (after test mocks are introduced).
-- [ ] No hardcoded model/token settings are left in `chat_service.py`.
-- [ ] Message history loads with consistent chronological sorting in SQLite.
+- [x] Pytest passes completely without active internet connection (after test mocks are introduced).
+- [x] No hardcoded model/token settings are left in `chat_service.py`.
+- [x] Message history loads with consistent chronological sorting in SQLite.

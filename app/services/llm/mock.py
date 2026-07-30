@@ -1,7 +1,7 @@
 import asyncio
 from typing import AsyncGenerator, List, Dict, Any
 from app.models.chat import Message as DBMessage, MessageRole
-from app.services.llm_base import LLMProvider, LLMResponse, ToolCall
+from app.services.llm.base import LLMProvider, LLMResponse, ToolCall
 
 class MockProvider(LLMProvider):
     async def generate_response(

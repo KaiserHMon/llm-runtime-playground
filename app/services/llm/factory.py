@@ -1,7 +1,7 @@
 from typing import Dict
-from app.services.llm_base import LLMProvider
-from app.services.llm_gemini import GeminiProvider
-from app.services.llm_mock import MockProvider
+from app.services.llm.base import LLMProvider
+from app.services.llm.gemini import GeminiProvider
+from app.services.llm.mock import MockProvider
 
 class LLMFactory:
     def __init__(self):

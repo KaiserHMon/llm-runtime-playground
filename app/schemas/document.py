@@ -6,6 +6,7 @@ class DocumentUpload(BaseModel):
     name: str = Field(..., description="Unique name/filename of the document")
     content: str = Field(..., description="Full text content of the document")
     conversation_id: str | None = Field(default=None, description="Optional conversation context to bind the document to")
+    embedding_provider: str | None = Field(default=None, description="Optional embedding provider name (e.g. 'gemini', 'mock')")
 
 class DocumentResponse(BaseModel):
     """Response model for document metadata."""
