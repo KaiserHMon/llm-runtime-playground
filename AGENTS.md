@@ -39,5 +39,5 @@
 - Semantic Memory (RAG with Vector DB)
 
 ## Current Progress
-- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service (`llm.py`), Orchestration Service (`chat_service.py`), FastAPI API Endpoints (with streaming support), Dynamic Token Budget with database-persisted token counts, Native Tool Calling (both database-backed `list_conversations` and utility `get_current_datetime`/`get_weather` tools) with manual multi-turn orchestration loop and thought signatures preservation, and Incremental Summarization Memory (with pointer pattern).
-- **Next Step:** Implement Semantic Memory (RAG with Vector DB).
+- **Completed:** Project setup (`uv`), Data Layer (SQLAlchemy 2.0 modern syntax), Schemas (Pydantic V2), Core Config, LLM Service, Orchestration Service (`chat_service.py`), FastAPI API Endpoints (with streaming support), Dynamic Token Budget with database-persisted token counts, Native Tool Calling (both database-backed and utility tools) with manual multi-turn orchestration loop and thought signatures preservation, Incremental Summarization Memory (with pointer pattern), and Semantic Memory (RAG with local/persistent Qdrant Vector DB).
+- **Next Step:** Define new features or architect future phases (e.g., agentic workflows, evaluation suite, or multi-agent support).
