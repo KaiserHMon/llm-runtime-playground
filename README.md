@@ -35,12 +35,18 @@ llm-runtime-playground/
 │   │   ├── chat.py       # Message create/response data validations
 │   │   └── document.py   # Document upload/response data validations
 │   └── services/         # Business Logic Layer
+│       ├── embedding/    # Embedding Provider Package
+│       │   ├── base.py   # Base abstract EmbeddingProvider definition
+│       │   ├── factory.py # Central embedding registry and resolver
+│       │   ├── gemini.py # Gemini embedding provider implementation
+│       │   └── mock.py   # Local mock provider for offline embeddings
+│       ├── llm/          # LLM Provider Package
+│       │   ├── base.py   # Base abstract LLMProvider definition
+│       │   ├── factory.py # Central LLM registry and resolver
+│       │   ├── gemini.py # Gemini LLM provider implementation
+│       │   └── mock.py   # Local mock provider for offline chat
 │       ├── chat_service.py # Orchestrates history pruning, summarization & tool loops
-│       ├── llm_base.py     # Base abstract LLMProvider and response definitions
-│       ├── llm_factory.py  # Central provider registry and factory resolver
-│       ├── llm_gemini.py   # Gemini provider implementation using google-genai SDK
-│       ├── llm_mock.py     # Local mock provider for fast offline simulation
-│       ├── rag_service.py  # Text splitting, embedding generation & search
+│       ├── rag_service.py  # Text splitting, database mapping & Qdrant query routing
 │       └── tools.py        # Custom python utility functions declared as LLM tools
 ├── tests/                # Test suites & unit testing capabilities
 ├── main.py               # Application entrypoint & DB lifecycle migrations
