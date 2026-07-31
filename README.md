@@ -8,7 +8,7 @@
 
 A robust, minimal-abstraction Python backend built from scratch to explore the fundamentals of AI Engineering, Context Engineering, and Large Language Model (LLM) integrations.
 
-## 🎯 Core Philosophy & Motivation
+## Core Philosophy & Motivation
 
 In the rapidly evolving AI ecosystem, heavy orchestration frameworks (like LangChain or LlamaIndex) have become the default choice for building LLM applications. While they excel at rapid prototyping, their nested wrappers, silent API calls, and rigid schemas often obscure how LLMs and databases actually interact at runtime.
 
@@ -33,6 +33,8 @@ If you want to understand the engine, you don't build it with pre-assembled wrap
 6. **Multi-Provider LLM Factory**: Under [services/](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/), an abstract `LLMProvider` interface decouples the core chat orchestrator from vendor-specific SDK libraries. The global `LLMFactory` registry maps dynamic payloads (e.g. `gemini` or a local non-networked `mock`) to their concrete integrations, facilitating offline testing, modular migrations, and multi-model routing.
 7. **Real-time LLM Response Streaming**: Support for Server-Sent Events (SSE) allows streaming the final model turn chunk-by-chunk to the client in real-time. Intermediate tool loops run synchronously on the backend, and once the final answer turn begins, response chunks are yielded directly from the provider, committing all turn messages atomically at the end.
 8. **Intelligent Semantic Routing**: Before fetching document chunks (RAG) blindly for every message, a dedicated classification router classifies queries into `RAG` or `CHAT` in [router.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/llm/router.py). The classification leverages Gemini's native **Structured Outputs** via Pydantic (`RoutingDecision`) at temperature `0.0` for deterministic routing, incorporating the last 10 messages of conversation history to handle follow-up queries contextually.
+9. **Input/Output Guardrails (Safety Layer)**: In [guardrail_service.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/guardrail_service.py), user inputs are validated against jailbreaks using a hybrid approach (regex + structured LLM check) and masked for PII (emails, phones, credit cards). Outputs are restored dynamically, using an async bracket-buffering character stream helper to handle placeholders split across streaming chunk boundaries.
+10. **LLM-as-a-Judge Benchmarking**: An isolated evaluation runner under [tests/evals/](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/tests/evals/) that runs test goldens against a temporary SQLite DB/in-memory Qdrant, grading response *Faithfulness* and *Relevance* via structured outputs with exponential backoff retries to handle rate limits.
 
 ---
 
