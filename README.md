@@ -1,8 +1,25 @@
 # LLM Runtime Playground
 
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-emerald.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-red.svg?style=for-the-badge&logo=qdrant&logoColor=white)](https://qdrant.tech)
+[![Ruff](https://img.shields.io/badge/Ruff-Linter-black.svg?style=for-the-badge)](https://github.com/astral-sh/ruff)
+[![Pytest](https://img.shields.io/badge/Pytest-Tests-blueviolet.svg?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org)
+
 A robust, minimal-abstraction Python backend built from scratch to explore the fundamentals of AI Engineering, Context Engineering, and Large Language Model (LLM) integrations.
 
-Instead of relying on heavy abstraction frameworks (like LangChain or LlamaIndex) that obscure backend operations, this repository implements the core components of a conversational AI system from the ground up using Clean Architecture principles, FastAPI, SQLAlchemy 2.0, and the official `google-genai` SDK.
+## 🎯 Core Philosophy & Motivation
+
+In the rapidly evolving AI ecosystem, heavy orchestration frameworks (like LangChain or LlamaIndex) have become the default choice for building LLM applications. While they excel at rapid prototyping, their nested wrappers, silent API calls, and rigid schemas often obscure how LLMs and databases actually interact at runtime.
+
+This repository serves as a **framework-less blueprint** for production-grade AI systems. By implementing core concepts using only vanilla Python and the official Google GenAI SDK, it provides full control over:
+- Context windows and token usage (no surprise billing).
+- Multi-turn tool execution loops.
+- Semantic routing and context filtering logic.
+- Input and output data security boundaries.
+- Evaluation metrics.
+
+If you want to understand the engine, you don't build it with pre-assembled wrappers. You write the components yourself.
 
 ---
 
