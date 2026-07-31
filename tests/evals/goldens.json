@@ -1,0 +1,38 @@
+[
+  {
+    "id": "rag_1",
+    "query": "Who is the lead scientist of Project Antigravity and where is the lab located?",
+    "expected_keywords": ["Sarah Chen", "Area 51", "Sector G"],
+    "category": "RAG"
+  },
+  {
+    "id": "rag_2",
+    "query": "What is the recommended production command for deploying the FastAPI application?",
+    "expected_keywords": ["uvicorn main:app", "--host 0.0.0.0", "--port 8000", "--workers 4"],
+    "category": "RAG"
+  },
+  {
+    "id": "rag_3",
+    "query": "What is the core component of Project Antigravity and what key encrypts its blueprints?",
+    "expected_keywords": ["Quantum Stabilizer", "AQS-SECURE-2026"],
+    "category": "RAG"
+  },
+  {
+    "id": "rag_4",
+    "query": "How should SSL termination be handled for the FastAPI deployment?",
+    "expected_keywords": ["SSL termination", "Nginx", "reverse proxy", "port 443"],
+    "category": "RAG"
+  },
+  {
+    "id": "chat_1",
+    "query": "Write a quick python function to check if a number is prime.",
+    "expected_keywords": ["def ", "prime", "range", "%"],
+    "category": "CHAT"
+  },
+  {
+    "id": "chat_2",
+    "query": "Hello there! How can you help me today?",
+    "expected_keywords": ["help", "assistant"],
+    "category": "CHAT"
+  }
+]

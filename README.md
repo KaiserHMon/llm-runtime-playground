@@ -217,3 +217,31 @@ curl -X POST http://127.0.0.1:8000/conversations/e6f47700-1122-3344-5566-778899a
      -d '{"content": "According to the ingested documents, what does high level business logic depend on?"}'
 ```
 
+---
+
+## AI Evaluation Suite (LLM-as-a-Judge)
+
+The repository implements a robust LLM-as-a-judge evaluation suite under [tests/evals/](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/tests/evals/) to measure RAG and CHAT performance.
+
+### Key Metrics Evaluated
+1. **Faithfulness**: Validates whether the generated response is strictly grounded in the retrieved context without hallucinations (Score 1-5).
+2. **Answer Relevance**: Measures if the generated response directly and completely answers the user's query (Score 1-5).
+
+### Evaluation Dataset (Goldens)
+The golden test cases are stored in [tests/evals/goldens.json](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/tests/evals/goldens.json) and include:
+* RAG-based queries (mapping to pre-defined test specs).
+* CHAT-based queries to test semantic routing and generic response quality.
+
+### Running Evaluations
+Execute the evaluation suite as a module:
+```bash
+uv run python -m tests.evals.run_evals
+```
+This script runs in isolation by:
+1. Provisioning a temporary SQLite database (`eval_runtime.db`).
+2. Configuring an in-memory Qdrant instance.
+3. Seeding test documents.
+4. Executing queries with automated exponential backoff on 429 rate limit errors.
+5. Grading responses via `gemini-flash-lite-latest` using structured outputs.
+6. Writing a detailed report at [tests/evals/report.md](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/tests/evals/report.md).
+

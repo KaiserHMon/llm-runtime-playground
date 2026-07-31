@@ -114,7 +114,8 @@ async def search_chunks(
     query: str,
     conversation_id: str | None = None,
     top_k: int = 5,
-    embedding_provider: str | None = None
+    embedding_provider: str | None = None,
+    score_threshold: float | None = None
 ) -> list[DocumentChunk]:
     """
     Searches document chunks matching the query.
@@ -136,11 +137,16 @@ async def search_chunks(
         ]
     )
     
+    # Default score threshold for non-mock providers (e.g. Gemini) to filter out irrelevant context
+    if score_threshold is None and embedding_provider != "mock":
+        score_threshold = 0.70
+        
     search_result = await qdrant_client.query_points(
         collection_name=QDRANT_COLLECTION,
         query=query_emb,
         query_filter=filter_condition,
-        limit=top_k
+        limit=top_k,
+        score_threshold=score_threshold
     )
     
     if not search_result or not search_result.points:
