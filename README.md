@@ -245,3 +245,21 @@ This script runs in isolation by:
 5. Grading responses via `gemini-flash-lite-latest` using structured outputs.
 6. Writing a detailed report at [tests/evals/report.md](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/tests/evals/report.md).
 
+---
+
+## Input/Output Guardrails (Safety Layer)
+
+The repository implements a robust, low-dependency Input/Output Guardrails framework under [app/services/guardrail_service.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/guardrail_service.py) to protect user data and ensure prompt safety.
+
+### 1. Input Guardrails
+* **Prompt Injection Detection (Option C - Hybrid)**: 
+  * Compiles a fast regular expression scan for high-risk jailbreak keywords (e.g. `ignore previous instructions`, `system override`, `you are now a`, etc.).
+  * If a pattern is flagged, it falls back to a secondary verification LLM call using `gemini-flash-lite-latest` and structured JSON outputs (`SafetyDecision` schema) to verify the prompt's intent.
+  * If identified as unsafe, a `ValueError("Prompt blocked due to security guardrail violation.")` is raised, causing the API to return HTTP 400.
+* **PII Masking**: Scans user prompts for sensitive information (emails, standard phone numbers, credit card numbers) using regular expressions and masks them with unique placeholder tags (e.g., `[EMAIL_1]`, `[PHONE_1]`, `[CREDIT_CARD_1]`). The original values are never stored in the database or sent to the LLM.
+
+### 2. Output Guardrails
+* **PII Deanonymization**: Maps placeholders back to their original values inside the final response returned to the user, providing a seamless user experience while ensuring backend privacy.
+* **Streaming Deanonymizer**: An async character-buffering generator (`deanonymize_stream`) that processes tokens dynamically, handling placeholders that span across network streaming chunk boundaries to prevent format breakage.
+
+

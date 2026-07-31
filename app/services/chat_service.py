@@ -10,6 +10,12 @@ from app.services.llm.base import LLMProvider
 from app.services.tools import registry
 from app.services.rag_service import search_chunks
 from app.services.llm.router import route_message
+from app.services.guardrail_service import (
+    verify_prompt_safety,
+    anonymize_pii,
+    deanonymize_pii,
+    deanonymize_stream,
+)
 
 
 def estimate_message_tokens(msg: Message) -> int:
@@ -172,6 +178,13 @@ async def process_chat_message(
     All messages (user prompt, intermediate tool requests, tool outputs, and final text)
     are saved to the database in a single atomic commit at the end.
     """
+    # 1. Input safety check on raw query content
+    await verify_prompt_safety(content)
+    
+    # 2. PII anonymization on query content
+    anon_content, pii_mapping = anonymize_pii(content)
+    content = anon_content
+
     provider = factory.get_provider(provider_name)
     sliced_history, conversation = await get_active_history(db, conversation_id, provider)
     
@@ -256,6 +269,14 @@ async def process_chat_message(
     if not final_model_message:
         final_model_message = pending_messages[-1]
         
+    # Deanonymize final response content using the generated mapping
+    if final_model_message and final_model_message.content:
+        final_model_message.content = deanonymize_pii(final_model_message.content, pii_mapping)
+        if final_model_message.parts:
+            for part in final_model_message.parts:
+                if isinstance(part, dict) and "text" in part and part["text"]:
+                    part["text"] = deanonymize_pii(part["text"], pii_mapping)
+        
     for msg in pending_messages:
         db.add(msg)
     await db.commit()
@@ -272,6 +293,13 @@ async def stream_chat_message(db: AsyncSession, conversation_id: str, content: s
     response chunks as they are received from the LLM provider, saving the complete
     sequence in the database at the end.
     """
+    # 1. Input safety check on raw query content
+    await verify_prompt_safety(content)
+    
+    # 2. PII anonymization on query content
+    anon_content, pii_mapping = anonymize_pii(content)
+    content = anon_content
+
     provider = factory.get_provider(provider_name)
     sliced_history, conversation = await get_active_history(db, conversation_id, provider)
     
@@ -345,14 +373,18 @@ async def stream_chat_message(db: AsyncSession, conversation_id: str, content: s
             # Final text turn: Stream the response content
             accumulated_content = []
             
-            async for chunk in provider.generate_response_stream(
-                current_history,
-                summary=conversation.summary,
-                rag_context=rag_context or None
-            ):
-                if chunk:
-                    accumulated_content.append(chunk)
-                    yield chunk
+            async def raw_stream():
+                async for chunk in provider.generate_response_stream(
+                    current_history,
+                    summary=conversation.summary,
+                    rag_context=rag_context or None
+                ):
+                    if chunk:
+                        yield chunk
+
+            async for chunk in deanonymize_stream(raw_stream(), pii_mapping):
+                accumulated_content.append(chunk)
+                yield chunk
             
             final_text = "".join(accumulated_content)
             final_model_message = Message(
@@ -367,6 +399,12 @@ async def stream_chat_message(db: AsyncSession, conversation_id: str, content: s
             
     if not final_model_message:
         final_model_message = pending_messages[-1]
+        if final_model_message and final_model_message.content:
+            final_model_message.content = deanonymize_pii(final_model_message.content, pii_mapping)
+            if final_model_message.parts:
+                for part in final_model_message.parts:
+                    if isinstance(part, dict) and "text" in part and part["text"]:
+                        part["text"] = deanonymize_pii(part["text"], pii_mapping)
         
     for msg in pending_messages:
         db.add(msg)
