@@ -6,6 +6,8 @@
 [![Ruff](https://img.shields.io/badge/Ruff-Linter-black.svg?style=for-the-badge)](https://github.com/astral-sh/ruff)
 [![Pytest](https://img.shields.io/badge/Pytest-Tests-blueviolet.svg?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org)
 
+![LLM Runtime Playground IDE Preview](mockup.png)
+
 A robust, minimal-abstraction Python backend built from scratch to explore the fundamentals of AI Engineering, Context Engineering, and Large Language Model (LLM) integrations.
 
 ## Table of Contents
