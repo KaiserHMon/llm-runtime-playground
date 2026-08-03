@@ -1,22 +1,40 @@
-/* Clean Design System for LLM Runtime Playground Chat Client */
+/* Clean Design System for LLM Runtime Playground Chat Client (Nord Theme Edition) */
 
 :root {
-  /* Color Palette */
-  --bg-primary: #121214;
-  --bg-sidebar: #1a1a1e;
-  --bg-surface: #202024;
-  --bg-surface-hover: #2a2a30;
+  /* Nord Color Palette - Arctic, North-Bluish Clean Theme */
+  --nord0: #2e3440; /* Darkest polar night background */
+  --nord1: #3b4252; /* Secondary polar night sidebar background */
+  --nord2: #434c5e; /* Surface polar night background */
+  --nord3: #4c566a; /* Inactive text and borders */
+  --nord4: #d8dee9; /* Main light text */
+  --nord5: #e5e9f0; /* Highlighted light text */
+  --nord6: #eceff4; /* Active white text */
+  --nord7: #8fbcbb; /* Frost Teal */
+  --nord8: #88c0d0; /* Frost Ice Blue */
+  --nord9: #81a1c1; /* Frost Medium Blue */
+  --nord10: #5e81ac; /* Frost Deep Blue */
+  --nord11: #bf616a; /* Aurora Red (Error) */
+  --nord12: #d08770; /* Aurora Orange (Warning, Temperature) */
+  --nord13: #ebcb8b; /* Aurora Yellow (Logs, Warning) */
+  --nord14: #a3be8c; /* Aurora Green (Success, Groundedness) */
+  --nord15: #b48ead; /* Aurora Purple (Metadata, Tokens) */
+
+  /* Design System Tokens mapped to Nord Palette */
+  --bg-primary: var(--nord0);
+  --bg-sidebar: var(--nord1);
+  --bg-surface: var(--nord2);
+  --bg-surface-hover: rgba(255, 255, 255, 0.05);
   
-  --text-primary: #e1e1e6;
-  --text-secondary: #a8a8b3;
-  --text-muted: #7c7c8a;
+  --text-primary: var(--nord6); /* Bright white (eceff4) */
+  --text-secondary: var(--nord4); /* Soft light gray (d8dee9) */
+  --text-muted: #929cb0; /* High contrast gray (WCAG AA compliant on Polar Night bg) */
   
-  --color-primary: #04d361; /* Green accent */
-  --color-primary-hover: #00b34d;
-  --color-error: #f75a68;
-  --color-warning: #fba94c;
+  --color-primary: var(--nord8); /* Nord Frost Blue */
+  --color-primary-hover: var(--nord7);
+  --color-error: var(--nord11);
+  --color-warning: var(--nord12);
   
-  --border-color: #29292e;
+  --border-color: rgba(255, 255, 255, 0.08);
   
   /* Typography */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -60,6 +78,13 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  transition: width var(--transition-normal), border var(--transition-normal);
+  overflow: hidden;
+}
+
+.sidebar.collapsed {
+  width: 0;
+  border-right: none;
 }
 
 .sidebar-header {
@@ -377,12 +402,19 @@ body {
 
 /* Right Sidebar - RAG Document Manager */
 .sidebar-right {
-  width: 320px;
+  width: 340px;
   background-color: var(--bg-sidebar);
   border-left: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   height: 100%;
+  transition: width var(--transition-normal), border var(--transition-normal);
+  overflow: hidden;
+}
+
+.sidebar-right.collapsed {
+  width: 0;
+  border-left: none;
 }
 
 .sidebar-right-header {
@@ -832,4 +864,257 @@ body {
   0% { opacity: 1; }
   50% { opacity: 0.6; }
   100% { opacity: 1; }
+}
+
+/* DevTools Bottom Drawer Layout & Styles */
+.workspace-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+}
+
+.devtools-drawer {
+  height: 280px;
+  background-color: var(--nord1);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  transition: height var(--transition-normal);
+  z-index: 10;
+}
+
+.devtools-header {
+  height: 40px;
+  background-color: var(--nord0);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+
+.devtools-tabs {
+  display: flex;
+  gap: 4px;
+  height: 100%;
+  align-items: flex-end;
+}
+
+.devtools-tab {
+  background: transparent;
+  border: none;
+  color: var(--nord3);
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  height: 36px;
+  border-bottom: 2px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.devtools-tab:hover {
+  color: var(--nord5);
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.devtools-tab.active {
+  color: var(--nord8);
+  border-bottom-color: var(--nord8);
+}
+
+.devtools-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.devtools-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--nord3);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.devtools-action-btn:hover {
+  color: var(--nord5);
+  background-color: var(--bg-surface-hover);
+}
+
+.devtools-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  background-color: rgba(46, 52, 64, 0.4);
+}
+
+.devtools-panel {
+  display: none;
+  height: 100%;
+}
+
+.devtools-panel.active {
+  display: block;
+}
+
+/* DevTools Logs Tab */
+.logs-console {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--nord4);
+}
+
+.log-line {
+  margin-bottom: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.log-timestamp {
+  color: var(--nord3);
+  flex-shrink: 0;
+}
+
+.log-tag {
+  flex-shrink: 0;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.log-tag.info {
+  background-color: rgba(136, 192, 208, 0.1);
+  color: var(--nord8);
+}
+
+.log-tag.success {
+  background-color: rgba(163, 190, 140, 0.1);
+  color: var(--nord14);
+}
+
+.log-tag.warning {
+  background-color: rgba(208, 135, 112, 0.1);
+  color: var(--nord12);
+}
+
+.log-tag.error {
+  background-color: rgba(191, 97, 106, 0.1);
+  color: var(--nord11);
+}
+
+.log-message {
+  word-break: break-all;
+}
+
+/* Sliders Configuration - Right Sidebar */
+.config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+
+.config-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nord8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+}
+
+.slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.slider-title {
+  font-weight: 500;
+}
+
+.slider-val {
+  font-family: var(--font-mono);
+  color: var(--nord8);
+  font-weight: 600;
+}
+
+.slider-input {
+  width: 100%;
+  accent-color: var(--nord8);
+  background-color: var(--nord0);
+  height: 6px;
+  border-radius: 3px;
+  outline: none;
+  border: none;
+  cursor: pointer;
+}
+
+/* Checkbox Groups - Tools Toggle */
+.tools-checkbox-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.tool-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-checkbox-label input[type="checkbox"] {
+  accent-color: var(--nord8);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+/* DevTools JSON Viewer */
+.json-viewer-block {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background-color: rgba(46, 52, 64, 0.8);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  overflow: auto;
+  max-height: 200px;
+  border: 1px solid var(--border-color);
+  color: var(--nord4);
+  white-space: pre-wrap;
+}
+
+/* DevTools Cost & Performance tab layout */
+.perf-metrics-container {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
 }
