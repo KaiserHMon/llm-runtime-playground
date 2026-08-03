@@ -8,6 +8,16 @@
 
 A robust, minimal-abstraction Python backend built from scratch to explore the fundamentals of AI Engineering, Context Engineering, and Large Language Model (LLM) integrations.
 
+## Table of Contents
+
+1. [Core Philosophy & Motivation](#core-philosophy--motivation)
+2. [Key AI Engineering Concepts Implemented](#key-ai-engineering-concepts-implemented)
+3. [Project Structure](#project-structure)
+4. [Request & Response Lifecycle](#request--response-lifecycle)
+5. [Setup & Running](#setup--running)
+6. [API Reference](#api-reference)
+7. [Testing the API (Examples)](#testing-the-api-examples)
+
 ## Core Philosophy & Motivation
 
 In the rapidly evolving AI ecosystem, heavy orchestration frameworks (like LangChain or LlamaIndex) have become the default choice for building LLM applications. While they excel at rapid prototyping, their nested wrappers, silent API calls, and rigid schemas often obscure how LLMs and databases actually interact at runtime.
@@ -89,31 +99,21 @@ sequenceDiagram
     actor Client
     participant API as FastAPI (API Layer)
     participant ChatService as Chat Service (Service Layer)
+    participant Guardrails as Guardrail Service (Service Layer)
     participant RAG as RAG Service (Service Layer)
     participant LLM as LLM Service (google-genai)
     participant DB as SQLite DB (Data Layer)
 
     Client->>API: POST /conversations/{id}/messages (content)
     API->>ChatService: process_chat_message(db, conversation_id, content)
-    
-    rect rgb(255, 240, 245)
-        Note over ChatService, LLM: Step 1: Semantic Routing
-        ChatService->>LLM: route_message(content, history)
-        LLM-->>ChatService: RoutingDecision ("RAG" or "CHAT")
-    end
-    
-    opt Route is RAG
-        rect rgb(240, 240, 240)
-            Note over ChatService, RAG: Step 2: Semantic Retrieval (RAG)
-            ChatService->>RAG: search_chunks(db, query, conversation_id)
-            RAG->>LLM: get_embedding(query)
-            LLM-->>RAG: Float Vector
-            RAG->>DB: Query chunks
-            DB-->>RAG: Chunks List
-            RAG-->>ChatService: Top-K matching chunks
-        end
-    end
 
+    rect rgb(255, 230, 230)
+        Note over ChatService, Guardrails: Step 1: Input Guardrails
+        ChatService->>Guardrails: verify_prompt_safety(content)
+        Guardrails-->>ChatService: Safe
+        ChatService->>Guardrails: anonymize_pii(content)
+        Guardrails-->>ChatService: anonymized_content, pii_mapping
+    end
 
     rect rgb(230, 245, 230)
         Note over ChatService, DB: Step 2: Context Reconstruction & Eviction
@@ -127,8 +127,26 @@ sequenceDiagram
         end
     end
 
+    rect rgb(255, 240, 245)
+        Note over ChatService, LLM: Step 3: Semantic Routing
+        ChatService->>LLM: route_message(anonymized_content, history)
+        LLM-->>ChatService: RoutingDecision ("RAG" or "CHAT")
+    end
+    
+    opt Route is RAG
+        rect rgb(240, 240, 240)
+            Note over ChatService, RAG: Step 4: Semantic Retrieval (RAG)
+            ChatService->>RAG: search_chunks(db, anonymized_content, conversation_id)
+            RAG->>LLM: get_embedding(anonymized_content)
+            LLM-->>RAG: Float Vector
+            RAG->>DB: Query chunks
+            DB-->>RAG: Chunks List
+            RAG-->>ChatService: Top-K matching chunks
+        end
+    end
+
     rect rgb(230, 230, 250)
-        Note over ChatService, LLM: Step 3: Generation & Function Calling Loop
+        Note over ChatService, LLM: Step 5: Generation & Function Calling Loop
         loop Up to MAX_TOOL_LOOP_ITERATIONS
             ChatService->>LLM: generate_response(history, summary, rag_context)
             LLM-->>ChatService: Response (Text or FunctionCall)
@@ -140,6 +158,12 @@ sequenceDiagram
                 Note over ChatService: Break loop
             end
         end
+    end
+
+    rect rgb(255, 230, 230)
+        Note over ChatService, Guardrails: Step 6: Output Guardrails & Deanonymization
+        ChatService->>Guardrails: deanonymize_pii(final_text, pii_mapping)
+        Guardrails-->>ChatService: deanonymized_text
     end
 
     ChatService->>DB: Atomic write (save User, Model, Tool & final messages)
@@ -254,49 +278,5 @@ curl -X POST http://127.0.0.1:8000/conversations/e6f47700-1122-3344-5566-778899a
      -d '{"content": "According to the ingested documents, what does high level business logic depend on?"}'
 ```
 
----
-
-## AI Evaluation Suite (LLM-as-a-Judge)
-
-The repository implements a robust LLM-as-a-judge evaluation suite under [tests/evals/](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/tests/evals/) to measure RAG and CHAT performance.
-
-### Key Metrics Evaluated
-1. **Faithfulness**: Validates whether the generated response is strictly grounded in the retrieved context without hallucinations (Score 1-5).
-2. **Answer Relevance**: Measures if the generated response directly and completely answers the user's query (Score 1-5).
-
-### Evaluation Dataset (Goldens)
-The golden test cases are stored in [tests/evals/goldens.json](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/tests/evals/goldens.json) and include:
-* RAG-based queries (mapping to pre-defined test specs).
-* CHAT-based queries to test semantic routing and generic response quality.
-
-### Running Evaluations
-Execute the evaluation suite as a module:
-```bash
-uv run python -m tests.evals.run_evals
-```
-This script runs in isolation by:
-1. Provisioning a temporary SQLite database (`eval_runtime.db`).
-2. Configuring an in-memory Qdrant instance.
-3. Seeding test documents.
-4. Executing queries with automated exponential backoff on 429 rate limit errors.
-5. Grading responses via `gemini-flash-lite-latest` using structured outputs.
-6. Writing a detailed report at [tests/evals/report.md](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/tests/evals/report.md).
-
----
-
-## Input/Output Guardrails (Safety Layer)
-
-The repository implements a robust, low-dependency Input/Output Guardrails framework under [app/services/guardrail_service.py](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/app/services/guardrail_service.py) to protect user data and ensure prompt safety.
-
-### 1. Input Guardrails
-* **Prompt Injection Detection (Option C - Hybrid)**: 
-  * Compiles a fast regular expression scan for high-risk jailbreak keywords (e.g. `ignore previous instructions`, `system override`, `you are now a`, etc.).
-  * If a pattern is flagged, it falls back to a secondary verification LLM call using `gemini-flash-lite-latest` and structured JSON outputs (`SafetyDecision` schema) to verify the prompt's intent.
-  * If identified as unsafe, a `ValueError("Prompt blocked due to security guardrail violation.")` is raised, causing the API to return HTTP 400.
-* **PII Masking**: Scans user prompts for sensitive information (emails, standard phone numbers, credit card numbers) using regular expressions and masks them with unique placeholder tags (e.g., `[EMAIL_1]`, `[PHONE_1]`, `[CREDIT_CARD_1]`). The original values are never stored in the database or sent to the LLM.
-
-### 2. Output Guardrails
-* **PII Deanonymization**: Maps placeholders back to their original values inside the final response returned to the user, providing a seamless user experience while ensuring backend privacy.
-* **Streaming Deanonymizer**: An async character-buffering generator (`deanonymize_stream`) that processes tokens dynamically, handling placeholders that span across network streaming chunk boundaries to prevent format breakage.
 
 
