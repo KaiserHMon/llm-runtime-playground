@@ -9,6 +9,10 @@ class MockProvider(LLMProvider):
         history: List[DBMessage],
         summary: str | None = None,
         rag_context: str | None = None,
+        temperature: float | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+        enabled_tools: List[str] | None = None,
     ) -> LLMResponse:
         # Find the last user message
         last_user_msg = ""
@@ -26,9 +30,13 @@ class MockProvider(LLMProvider):
         # Trigger tool calls mock
         tool_calls = []
         if not last_msg_is_tool:
-            if "weather" in last_user_msg.lower():
+            # Check if tools are enabled
+            db_enabled = enabled_tools is None or "query_database" in enabled_tools
+            shell_enabled = enabled_tools is None or "run_shell_command" in enabled_tools
+            
+            if db_enabled and ("weather" in last_user_msg.lower()):
                 tool_calls.append(ToolCall(name="get_weather", args={"location": "Buenos Aires"}))
-            elif "time" in last_user_msg.lower() or "hora" in last_user_msg.lower():
+            elif shell_enabled and ("time" in last_user_msg.lower() or "hora" in last_user_msg.lower()):
                 tool_calls.append(ToolCall(name="get_current_datetime", args={}))
 
         if tool_calls:
@@ -58,8 +66,20 @@ class MockProvider(LLMProvider):
         history: List[DBMessage],
         summary: str | None = None,
         rag_context: str | None = None,
+        temperature: float | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+        enabled_tools: List[str] | None = None,
     ) -> AsyncGenerator[str, None]:
-        response = await self.generate_response(history, summary, rag_context)
+        response = await self.generate_response(
+            history, 
+            summary, 
+            rag_context, 
+            temperature=temperature, 
+            top_k=top_k, 
+            top_p=top_p, 
+            enabled_tools=enabled_tools
+        )
         content = response.content or "[Mock Provider] Tool calls requested."
         # Yield words with a small delay to simulate streaming
         for word in content.split(" "):

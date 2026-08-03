@@ -21,6 +21,10 @@ class LLMProvider(ABC):
         history: List[DBMessage],
         summary: str | None = None,
         rag_context: str | None = None,
+        temperature: float | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+        enabled_tools: List[str] | None = None,
     ) -> LLMResponse:
         """
         Generates a response from the LLM given a conversation history.
@@ -33,6 +37,10 @@ class LLMProvider(ABC):
         history: List[DBMessage],
         summary: str | None = None,
         rag_context: str | None = None,
+        temperature: float | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+        enabled_tools: List[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         Streams the response content from the LLM.

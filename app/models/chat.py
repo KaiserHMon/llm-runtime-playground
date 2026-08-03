@@ -62,6 +62,8 @@ class Message(Base):
     # Full Turn payload structure containing all parts (text, function calls, and thought signatures).
     # Storing the raw parts list preserves the binary thought_signature needed by Gemini 2.0/2.5.
     parts: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    rag_route: Mapped[str | None] = mapped_column(String, nullable=True)
+    rag_sources: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
 

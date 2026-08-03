@@ -5,9 +5,36 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.schemas.document import DocumentUpload, DocumentResponse
 from app.models.document import Document
-from app.services.rag_service import ingest_document, delete_document as delete_doc_service
+from app.services.rag_service import ingest_document, delete_document as delete_doc_service, search_chunks
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
+
+@router.get("/search")
+async def search_vector_db(
+    query: str = Query(..., description="Query string to search in the vector DB"),
+    conversation_id: str | None = Query(None, description="Optional conversation scope filter"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Searches the vector database for document chunks matching the query string.
+    """
+    try:
+        chunks = await search_chunks(db, query, conversation_id=conversation_id)
+        return [
+            {
+                "id": chunk.id,
+                "document_id": chunk.document_id,
+                "document_name": chunk.document.name,
+                "conversation_id": chunk.conversation_id,
+                "chunk_index": chunk.chunk_index,
+                "content": chunk.content,
+                "score": getattr(chunk, "score", None)
+            }
+            for chunk in chunks
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search vector DB: {str(e)}")
+
 
 @router.post("/upload", response_model=DocumentResponse)
 async def upload_document(

@@ -167,7 +167,9 @@ async def search_chunks(
     for point in search_result.points:
         chunk_id = str(point.id)
         if chunk_id in chunks:
-            ordered_chunks.append(chunks[chunk_id])
+            chunk = chunks[chunk_id]
+            chunk.score = point.score
+            ordered_chunks.append(chunk)
             
     return ordered_chunks
 

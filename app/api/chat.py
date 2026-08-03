@@ -26,6 +26,13 @@ async def create_conversation(payload: ConversationCreate, db: AsyncSession = De
     await db.refresh(db_conv)
     return db_conv
 
+@router.get("", response_model=list[ConversationResponse])
+async def list_conversations(db: AsyncSession = Depends(get_db)):
+    """Lists all conversations ordered by updated_at descending."""
+    stmt = select(Conversation).order_by(Conversation.updated_at.desc())
+    result = await db.scalars(stmt)
+    return result.all()
+
 @router.post("/{conversation_id}/messages", response_model=MessageResponse)
 async def send_message(conversation_id: str, payload: MessageCreate, db: AsyncSession = Depends(get_db)):
     """Sends a user message, calls LLM, and returns the model's response."""
@@ -34,7 +41,12 @@ async def send_message(conversation_id: str, payload: MessageCreate, db: AsyncSe
             db=db, 
             conversation_id=conversation_id, 
             content=payload.content,
-            provider_name=payload.provider
+            provider_name=payload.provider,
+            system_prompt=payload.system_prompt,
+            temperature=payload.temperature,
+            top_k=payload.top_k,
+            top_p=payload.top_p,
+            enabled_tools=payload.enabled_tools
         )
         return model_message
     except ValueError as e:
@@ -52,7 +64,12 @@ async def send_message_stream(conversation_id: str, payload: MessageCreate, db: 
                 db=db, 
                 conversation_id=conversation_id, 
                 content=payload.content,
-                provider_name=payload.provider
+                provider_name=payload.provider,
+                system_prompt=payload.system_prompt,
+                temperature=payload.temperature,
+                top_k=payload.top_k,
+                top_p=payload.top_p,
+                enabled_tools=payload.enabled_tools
             ),
             media_type="text/event-stream"
         )

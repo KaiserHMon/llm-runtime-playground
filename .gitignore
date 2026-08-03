@@ -8,3 +8,5 @@ __pycache__/
 *.sqlite3
 AGENTS.md
 roadmap.md
+templates/
+qdrant_storage/

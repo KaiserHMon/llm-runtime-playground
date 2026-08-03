@@ -23,12 +23,14 @@ Be concise and direct in your answers."""
             self._client = genai.Client(api_key=api_key)
         return self._client
 
-    def _get_tools(self) -> list[types.Tool]:
+    def _get_tools(self, enabled_tools: list[str] | None = None) -> list[types.Tool]:
         """
         Transforms registered Python tools into Gemini SDK types.Tool objects.
         """
         declarations = []
         for name, func in registry._tools.items():
+            if enabled_tools is not None and name not in enabled_tools:
+                continue
             sig = inspect.signature(func)
             properties = {}
             required = []
@@ -112,6 +114,10 @@ Be concise and direct in your answers."""
         history: List[DBMessage],
         summary: str | None = None,
         rag_context: str | None = None,
+        temperature: float | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+        enabled_tools: List[str] | None = None,
     ) -> LLMResponse:
         contents = self._build_context(history)
         
@@ -131,8 +137,10 @@ Be concise and direct in your answers."""
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                temperature=0.7,
-                tools=self._get_tools()
+                temperature=temperature if temperature is not None else 0.7,
+                top_k=top_k if top_k is not None else None,
+                top_p=top_p if top_p is not None else None,
+                tools=self._get_tools(enabled_tools)
             )
         )
         
@@ -167,6 +175,10 @@ Be concise and direct in your answers."""
         history: List[DBMessage],
         summary: str | None = None,
         rag_context: str | None = None,
+        temperature: float | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+        enabled_tools: List[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         contents = self._build_context(history)
         
@@ -186,8 +198,10 @@ Be concise and direct in your answers."""
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                temperature=0.7,
-                tools=self._get_tools()
+                temperature=temperature if temperature is not None else 0.7,
+                top_k=top_k if top_k is not None else None,
+                top_p=top_p if top_p is not None else None,
+                tools=self._get_tools(enabled_tools)
             )
         )
         async for chunk in response_stream:

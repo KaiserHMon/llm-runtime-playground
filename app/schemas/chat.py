@@ -10,6 +10,11 @@ class MessageCreate(BaseModel):
     """Payload sent by the user to the chat endpoint."""
     content: str = Field(..., description="The text content of the message")
     provider: str | None = Field(default=None, description="Optional LLM provider to use for this request")
+    system_prompt: str | None = Field(default=None, description="Optional custom system prompt override")
+    temperature: float | None = Field(default=None, description="Optional generation temperature override")
+    top_k: int | None = Field(default=None, description="Optional generation top_k override")
+    top_p: float | None = Field(default=None, description="Optional generation top_p override")
+    enabled_tools: list[str] | None = Field(default=None, description="Optional list of enabled tool names")
 
 class MessageResponse(BaseModel):
     """Response model returned by the API for a message."""
@@ -25,6 +30,8 @@ class MessageResponse(BaseModel):
     tool_call_id: str | None = None
     # The complete turn parts list payload (e.g. text blocks, function calls, thought signatures)
     parts: list[dict] | None = None
+    rag_route: str | None = None
+    rag_sources: list[dict] | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

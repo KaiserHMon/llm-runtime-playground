@@ -240,3 +240,21 @@ This document tracks key architectural decisions and framework-specific nuances 
                         yield char
     ```
 * **Why**: This guarantees 100% PII protection (sensitive data never touches the LLM or DB), ensures clean real-time streaming output, and keeps latency at absolute zero for 99% of normal queries, only incurring API costs when a prompt pattern is genuinely suspicious.
+
+## Semantic Routing via Gemini Structured Outputs
+* **Context**: In dynamic RAG workflows, routing queries to RAG vs CHAT dynamically is necessary to prevent irrelevant vector lookups and prompt noise.
+* **Discovery**: Gemini's support for structured JSON outputs (with `response_schema` and `response_mime_type="application/json"`) can be utilized with Pydantic schemas (e.g., `RoutingDecision` containing `route` and `justification`) at `temperature=0.0` for deterministic and highly accurate routing decisions.
+* **Pattern**:
+  - Formulate a strict schema (e.g., `RoutingDecision` Pydantic model) describing routing rules for RAG (specific knowledge, codes, passphrases, project-specific data) vs CHAT (conversational, general programming, broad concepts).
+  - Format the last 10 messages of conversation history to maintain conversational context.
+  - Call the model passing `RoutingDecision` as the schema and parsing the JSON response. Fall back to standard CHAT routing if errors occur.
+* **Why**: Eliminates manual regex/heuristic routing hacks and ensures consistent routing decisions by letting the model self-classify its query requirements deterministically, avoiding unnecessary embedding generations and vector queries for 99% of regular conversations.
+
+## React SPA Real-time SSE & Tool Timeline Parsing
+* **Context**: Displaying dynamic tool calls, intermediate LLM responses, and real-time generation chunks during multi-turn orchestration loops.
+* **Discovery**: Traditional REST endpoints make it hard to show streaming progress alongside structured database updates (e.g., intermediate tool calls, RAG sources). Combining SSE (Server-Sent Events) for the final response generation stream with a post-stream reload of the conversation details solves this.
+* **Pattern**:
+  - **SSE Streaming**: POST JSON containing message parameters to the streaming endpoint `/conversations/{id}/messages/stream`. Read the response body stream using a reader (`ReadableStreamDefaultReader`) and decode it with `TextDecoder` to update a `streamedContent` state.
+  - **Post-Stream Sync**: Once streaming is complete, perform a separate fetch to the GET `/conversations/{id}` endpoint. This reloads the database state, replacing optimistic client messages with real backend entries containing full metadata (e.g., actual database IDs, tokens consumed, tool execution responses, and RAG sources).
+  - **Turn Timeline Grouping**: Write a client-side utility (`getGroupedTurns`) that aggregates chronological messages by grouping intermediate turns (`model` messages requesting tools and matching `tool` response messages) under their initiating `user` message, rendering an execution timeline alongside the final answers.
+* **Why**: Keeps the UI highly responsive by rendering text chunks as they arrive, and seamlessly visualizes the internal tool loops, routing decisions, and RAG grounding scores once the generation turn completes.

@@ -165,7 +165,15 @@ async def execute_tool(db: AsyncSession, tool_name: str, args: dict) -> str:
 
 
 async def process_chat_message(
-    db: AsyncSession, conversation_id: str, content: str, provider_name: str | None = None
+    db: AsyncSession,
+    conversation_id: str,
+    content: str,
+    provider_name: str | None = None,
+    system_prompt: str | None = None,
+    temperature: float | None = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
+    enabled_tools: list[str] | None = None,
 ) -> Message:
     """
     Orchestrates the chat turn flow with manual tool execution loops.
@@ -186,11 +194,14 @@ async def process_chat_message(
     content = anon_content
 
     provider = factory.get_provider(provider_name)
+    if system_prompt is not None:
+        provider.system_prompt = system_prompt
     sliced_history, conversation = await get_active_history(db, conversation_id, provider)
     
     # Determine the route and conditionally retrieve RAG context
     route = await route_message(content, history=sliced_history, provider_name=provider_name)
     rag_context = ""
+    chunks = []
     if route == "RAG":
         emb_provider = "mock" if provider_name == "mock" else None
         chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
@@ -221,7 +232,11 @@ async def process_chat_message(
         response = await provider.generate_response(
             current_history,
             summary=conversation.summary,
-            rag_context=rag_context or None
+            rag_context=rag_context or None,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            enabled_tools=enabled_tools
         )
         
         if response.tool_calls:
@@ -277,13 +292,36 @@ async def process_chat_message(
                 if isinstance(part, dict) and "text" in part and part["text"]:
                     part["text"] = deanonymize_pii(part["text"], pii_mapping)
         
+    if final_model_message:
+        final_model_message.rag_route = route
+        if route == "RAG" and chunks:
+            final_model_message.rag_sources = [
+                {
+                    "document_name": chunk.document.name if chunk.document else "Unknown",
+                    "chunk_index": chunk.chunk_index,
+                    "content": chunk.content,
+                    "score": getattr(chunk, "score", None)
+                }
+                for chunk in chunks
+            ]
+
     for msg in pending_messages:
         db.add(msg)
     await db.commit()
     await db.refresh(final_model_message)
     return final_model_message
 
-async def stream_chat_message(db: AsyncSession, conversation_id: str, content: str, provider_name: str | None = None):
+async def stream_chat_message(
+    db: AsyncSession,
+    conversation_id: str,
+    content: str,
+    provider_name: str | None = None,
+    system_prompt: str | None = None,
+    temperature: float | None = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
+    enabled_tools: list[str] | None = None,
+):
     """
     Orchestrates the chat turn flow with manual tool execution loops,
     but streams the final model response turn to the client in real-time.
@@ -301,11 +339,14 @@ async def stream_chat_message(db: AsyncSession, conversation_id: str, content: s
     content = anon_content
 
     provider = factory.get_provider(provider_name)
+    if system_prompt is not None:
+        provider.system_prompt = system_prompt
     sliced_history, conversation = await get_active_history(db, conversation_id, provider)
     
     # Determine the route and conditionally retrieve RAG context
     route = await route_message(content, history=sliced_history, provider_name=provider_name)
     rag_context = ""
+    chunks = []
     if route == "RAG":
         emb_provider = "mock" if provider_name == "mock" else None
         chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
@@ -336,7 +377,11 @@ async def stream_chat_message(db: AsyncSession, conversation_id: str, content: s
         response = await provider.generate_response(
             current_history,
             summary=conversation.summary,
-            rag_context=rag_context or None
+            rag_context=rag_context or None,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            enabled_tools=enabled_tools
         )
         
         if response.tool_calls:
@@ -377,7 +422,11 @@ async def stream_chat_message(db: AsyncSession, conversation_id: str, content: s
                 async for chunk in provider.generate_response_stream(
                     current_history,
                     summary=conversation.summary,
-                    rag_context=rag_context or None
+                    rag_context=rag_context or None,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                    enabled_tools=enabled_tools
                 ):
                     if chunk:
                         yield chunk
@@ -406,6 +455,19 @@ async def stream_chat_message(db: AsyncSession, conversation_id: str, content: s
                     if isinstance(part, dict) and "text" in part and part["text"]:
                         part["text"] = deanonymize_pii(part["text"], pii_mapping)
         
+    if final_model_message:
+        final_model_message.rag_route = route
+        if route == "RAG" and chunks:
+            final_model_message.rag_sources = [
+                {
+                    "document_name": chunk.document.name if chunk.document else "Unknown",
+                    "chunk_index": chunk.chunk_index,
+                    "content": chunk.content,
+                    "score": getattr(chunk, "score", None)
+                }
+                for chunk in chunks
+            ]
+
     for msg in pending_messages:
         db.add(msg)
     await db.commit()

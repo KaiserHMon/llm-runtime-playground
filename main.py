@@ -1,5 +1,8 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse, FileResponse
 from contextlib import asynccontextmanager
+from sqlalchemy import text
 from app.core.database import Base, engine
 from app.api.chat import router as chat_router
 from app.api.documents import router as documents_router
@@ -17,12 +20,19 @@ async def lifespan(app: FastAPI):
         
         # Check and migrate columns if database already exists
         def migrate_db(connection):
-            cursor = connection.execute("PRAGMA table_info(conversations)")
+            cursor = connection.execute(text("PRAGMA table_info(conversations)"))
             columns = [row[1] for row in cursor.fetchall()]
             if "summary" not in columns:
-                connection.execute("ALTER TABLE conversations ADD COLUMN summary TEXT")
+                connection.execute(text("ALTER TABLE conversations ADD COLUMN summary TEXT"))
             if "last_summarized_message_id" not in columns:
-                connection.execute("ALTER TABLE conversations ADD COLUMN last_summarized_message_id VARCHAR")
+                connection.execute(text("ALTER TABLE conversations ADD COLUMN last_summarized_message_id VARCHAR"))
+                
+            cursor = connection.execute(text("PRAGMA table_info(messages)"))
+            columns = [row[1] for row in cursor.fetchall()]
+            if "rag_route" not in columns:
+                connection.execute(text("ALTER TABLE messages ADD COLUMN rag_route VARCHAR"))
+            if "rag_sources" not in columns:
+                connection.execute(text("ALTER TABLE messages ADD COLUMN rag_sources JSON"))
                 
         await conn.run_sync(migrate_db)
     yield
@@ -38,6 +48,10 @@ app = FastAPI(
 app.include_router(chat_router)
 app.include_router(documents_router)
 
+# Mount React build assets and serve index at root
+app.mount("/assets", StaticFiles(directory="client/dist/assets"), name="assets")
+
 @app.get("/")
 def read_root():
-    return {"message": "Hello from llm-runtime-playground!"}
+    return FileResponse("client/dist/index.html")
+

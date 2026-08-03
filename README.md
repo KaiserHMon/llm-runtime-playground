@@ -51,7 +51,8 @@ llm-runtime-playground/
 │   │   ├── config.py     # Pydantic Settings validation
 │   │   └── database.py   # Async SQLite session engine using SQLAlchemy 2.0
 │   ├── models/           # Data Layer (Database schemas)
-│   │   └── chat.py       # Conversation, Message, Document, and Chunk tables
+│   │   ├── chat.py       # Conversation and Message tables
+│   │   └── document.py   # Document and DocumentChunk tables
 │   ├── schemas/          # API Validation Layer (Pydantic V2 schemas)
 │   │   ├── chat.py       # Message create/response data validations
 │   │   └── document.py   # Document upload/response data validations
@@ -68,13 +69,13 @@ llm-runtime-playground/
 │       │   ├── mock.py   # Local mock provider for offline chat
 │       │   └── router.py # Semantic router & Pydantic classification schema
 │       ├── chat_service.py # Orchestrates history pruning, summarization & tool loops
-
+│       ├── guardrail_service.py # Safety Guardrails (PII anonymization & prompt injection)
 │       ├── rag_service.py  # Text splitting, database mapping & Qdrant query routing
 │       └── tools.py        # Custom python utility functions declared as LLM tools
+├── client/               # React TypeScript Vite SPA frontend client
 ├── tests/                # Test suites & unit testing capabilities
 ├── main.py               # Application entrypoint & DB lifecycle migrations
 ├── pyproject.toml        # uv configuration & python dependencies
-├── roadmap.md            # Future refactoring & code quality roadmap
 └── README.md             # Project documentation
 ```
 
@@ -157,18 +158,27 @@ Create a `.env` file in the root directory and add your Gemini API key:
 GEMINI_API_KEY="your-api-key-here"
 ```
 
-### 2. Start the Development Server
+### 2. Build the Frontend
+Build the React TypeScript SPA so uvicorn can serve it:
+```bash
+cd client
+npm install
+npm run build
+cd ..
+```
+
+### 3. Start the Development Server
 Install dependencies and run the server using `uv`:
 ```bash
 uv run uvicorn main:app --reload
 ```
 
-### 3. Verify
+### 4. Verify
 Open your browser and navigate to the interactive OpenAPI documentation:
 * **Interactive Docs**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 * **API Status**: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
 
-### 4. Running the Tests
+### 5. Running the Tests
 Execute the asynchronous pytest integration suite using `uv`:
 ```bash
 uv run pytest
@@ -187,16 +197,18 @@ This tests:
 | Endpoint | Method | Payload | Description |
 | :--- | :--- | :--- | :--- |
 | `/conversations` | `POST` | `{"title": "Optional Title"}` | Creates a new empty conversation thread. |
+| `/conversations` | `GET` | *None* | Lists all conversations ordered by modification time. |
 | `/conversations/{id}` | `GET` | *None* | Retrieves a conversation including its full sorted message history. |
-| `/conversations/{id}/messages` | `POST` | `{"content": "Your message", "provider": "optional"}` | Sends a message, executes retrieval, runs tool calling loop, and returns the response. Supports specifying the provider (`gemini` or `mock`). |
-| `/conversations/{id}/messages/stream` | `POST` | `{"content": "Your message", "provider": "optional"}` | Streams the response chunks in real-time. |
+| `/conversations/{id}/messages` | `POST` | `{"content": "...", "provider": "optional", "system_prompt": "optional", "temperature": float, "top_k": int, "top_p": float, "enabled_tools": list[str]}` | Sends a user message, triggers RAG if routed, executes registered tools, and returns the model response. Supports specifying custom model parameters at runtime. |
+| `/conversations/{id}/messages/stream` | `POST` | `{"content": "...", "provider": "optional", "system_prompt": "optional", "temperature": float, "top_k": int, "top_p": float, "enabled_tools": list[str]}` | Streams the final model response in real-time while executing intermediate tool steps synchronously. Supports specifying custom model parameters at runtime. |
 
 ### Documents (RAG Ingestion)
 
 | Endpoint | Method | Payload | Description |
 | :--- | :--- | :--- | :--- |
 | `/documents` | `GET` | *None* | Lists all uploaded documents. |
-| `/documents/upload` | `POST` | `{"name": "doc_name", "content": "raw text", "conversation_id": null}` | Splits text, generates embeddings, and indexes the document chunks. |
+| `/documents/upload` | `POST` | `{"name": "doc_name", "content": "raw text", "conversation_id": null, "embedding_provider": "optional"}` | Splits text, generates embeddings, and indexes the document chunks. Supports specifying an optional embedding provider (`gemini` or `mock`). |
+| `/documents/search` | `GET` | *Query Parameter: query (required), conversation_id (optional)* | Searches the vector database for document chunks matching the query string. |
 | `/documents/{name}` | `DELETE` | *None* | Deletes a document and cascades deletion to all its vector chunks. |
 
 ---
