@@ -158,7 +158,13 @@ Create a `.env` file in the root directory and add your Gemini API key:
 GEMINI_API_KEY="your-api-key-here"
 ```
 
-### 2. Build the Frontend
+### 2. Install Python Dependencies
+Synchronize the virtual environment and install backend dependencies using `uv`:
+```bash
+uv sync
+```
+
+### 3. Build the Frontend
 Build the React TypeScript SPA so uvicorn can serve it:
 ```bash
 cd client
@@ -167,18 +173,18 @@ npm run build
 cd ..
 ```
 
-### 3. Start the Development Server
-Install dependencies and run the server using `uv`:
+### 4. Start the Development Server
+Run the FastAPI application with reload enabled:
 ```bash
 uv run uvicorn main:app --reload
 ```
 
-### 4. Verify
+### 5. Verify
 Open your browser and navigate to the interactive OpenAPI documentation:
 * **Interactive Docs**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 * **API Status**: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
 
-### 5. Running the Tests
+### 6. Running the Tests
 Execute the asynchronous pytest integration suite using `uv`:
 ```bash
 uv run pytest
