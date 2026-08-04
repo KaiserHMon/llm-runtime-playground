@@ -17,8 +17,9 @@ A robust, minimal-abstraction Python backend built from scratch to explore the f
 3. [Project Structure](#project-structure)
 4. [Request & Response Lifecycle](#request--response-lifecycle)
 5. [Setup & Running](#setup--running)
-6. [API Reference](#api-reference)
-7. [Testing the API (Examples)](#testing-the-api-examples)
+6. [React TypeScript Frontend Client](#react-typescript-frontend-client)
+7. [API Reference](#api-reference)
+8. [Testing the API (Examples)](#testing-the-api-examples)
 
 ## Core Philosophy & Motivation
 
@@ -50,7 +51,6 @@ If you want to understand the engine, you don't build it with pre-assembled wrap
 11. **Asynchronous Background Task Title Generation**: A non-blocking handler utilizing FastAPI's `BackgroundTasks` to automatically generate descriptive conversation titles. Upon receiving a conversation's first message, the system triggers the background worker to execute a deterministic title summary using `gemini-flash-lite-latest` at `temperature=0.0`. It isolates the provider instance to prevent thread-safety state pollution and employs a dual-session recovery strategy to avoid write failures on closed connection lifecycles.
 
 ---
-
 
 ## Project Structure
 
@@ -220,6 +220,24 @@ This tests:
 * **Provider Hot-Swapping**: Verifies routing and execution loops offline via the `MockProvider`.
 * **RAG Flow**: Validates text chunking, embedding generation, in-memory cosine similarity, context retrieval, and cascading database deletes.
 * **HTTP Endpoints**: Tests REST endpoints in-memory using `httpx.AsyncClient` connected directly to the FastAPI app.
+
+---
+
+## React TypeScript Frontend Client
+
+To interact with the LLM Runtime and inspect its operations in real-time, the project includes a fully featured React TypeScript SPA Client built with Vite. It features a complete developer cockpit directly integrated with the backend:
+
+1. **Interactive Thread Selector ([SidebarLeft.tsx](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/client/src/components/SidebarLeft.tsx))**: Manage chat sessions, browse history, and switch contexts.
+2. **Runtime Configuration Panel ([SidebarRight.tsx](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/client/src/components/SidebarRight.tsx))**:
+   - **Model Parameter Controls**: Real-time sliders to customize `Temperature`, `Top-K`, and `Top-P` values dynamically per request.
+   - **Enabled Runtime Tools**: Checkbox selectors to enable or disable native execution tools (`query_database`, `run_shell_command`, `read_file`) on the fly.
+   - **RAG Ingestion Database**: A drag-and-drop zone supporting `.txt` and `.md` file ingestion. Displays lists of indexed documents with cascading chunk deletions from the SQLite and Qdrant databases.
+3. **Audit-Ready Chat Feed ([ChatFeed.tsx](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/client/src/components/ChatFeed.tsx))**: View real-time streamed model tokens, active tool-call alerts, and RAG source context citations. Click on any message bubble to select that conversation turn for execution auditing.
+4. **Bottom DevTools Drawer ([ConsoleBottom.tsx](file:///C:/Proyectos/ai-engineering/llm-runtime-playground/client/src/components/ConsoleBottom.tsx))**:
+   - **Terminal Logs**: Live terminal outputs tracking internal backend events, database queries, and raw API communications.
+   - **Execution Steps**: A visual execution timeline tracking routing decisions (RAG vs. Chat), specific tool invocation parameters, outputs, and generation lengths.
+   - **Raw Payload JSON**: A complete request-response JSON viewer to debug the exact payloads exchanged with the backend.
+   - **Performance & Cost**: Audit tool latency (in seconds), estimate API billing footprint, and view automated **LLM-as-a-Judge** evaluation metrics (*Faithfulness* and *Relevance* scores graded from 1.0 to 5.0).
 
 ---
 
