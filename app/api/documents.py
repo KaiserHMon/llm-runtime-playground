@@ -13,13 +13,14 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 async def search_vector_db(
     query: str = Query(..., description="Query string to search in the vector DB"),
     conversation_id: str | None = Query(None, description="Optional conversation scope filter"),
+    embedding_provider: str | None = Query(None, description="Optional embedding provider name"),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Searches the vector database for document chunks matching the query string.
     """
     try:
-        chunks = await search_chunks(db, query, conversation_id=conversation_id)
+        chunks = await search_chunks(db, query, conversation_id=conversation_id, embedding_provider=embedding_provider)
         return [
             {
                 "id": chunk.id,
