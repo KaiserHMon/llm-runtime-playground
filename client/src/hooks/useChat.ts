@@ -112,21 +112,11 @@ export function useChat() {
     }
   };
 
-  const handleCreateConversation = async () => {
-    try {
-      const res = await fetch('/conversations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: null })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setActiveConvId(data.id);
-        await loadConversations();
-      }
-    } catch (err) {
-      console.error('Failed to create conversation:', err);
-    }
+  const handleCreateConversation = () => {
+    setActiveConvId(null);
+    setActiveConv(null);
+    setMessages([]);
+    setInspectedTurnId(null);
   };
 
   const handleSendMessage = async (e: FormEvent) => {
