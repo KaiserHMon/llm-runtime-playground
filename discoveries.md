@@ -258,3 +258,31 @@ This document tracks key architectural decisions and framework-specific nuances 
   - **Post-Stream Sync**: Once streaming is complete, perform a separate fetch to the GET `/conversations/{id}` endpoint. This reloads the database state, replacing optimistic client messages with real backend entries containing full metadata (e.g., actual database IDs, tokens consumed, tool execution responses, and RAG sources).
   - **Turn Timeline Grouping**: Write a client-side utility (`getGroupedTurns`) that aggregates chronological messages by grouping intermediate turns (`model` messages requesting tools and matching `tool` response messages) under their initiating `user` message, rendering an execution timeline alongside the final answers.
 * **Why**: Keeps the UI highly responsive by rendering text chunks as they arrive, and seamlessly visualizes the internal tool loops, routing decisions, and RAG grounding scores once the generation turn completes.
+
+## Automated LLM-as-a-Judge Evaluation (Faithfulness & Relevance)
+* **Context**: Programmatically measuring response quality in production or CI/CD pipelines without human-in-the-loop dependencies or subjective/flaky evaluations.
+* **Discovery**: Using a lightweight LLM (e.g., `gemini-flash-lite-latest`) configured with a strict system prompt grading rubric, structured JSON output matching a Pydantic model (`EvaluationResponse`), and `temperature=0.0` provides a highly cost-effective, reproducible, and deterministic rating suite for *Faithfulness* (grounding) and *Relevance*.
+* **Pattern**:
+  - Define the evaluation schema:
+    ```python
+    class EvaluationResponse(BaseModel):
+        faithfulness_score: int = Field(description="Faithfulness score from 1 to 5")
+        faithfulness_reason: str = Field(description="Detailed explanation for the faithfulness score")
+        relevance_score: int = Field(description="Relevance score from 1 to 5")
+        relevance_reason: str = Field(description="Detailed explanation for the relevance score")
+    ```
+  - Formulate a strict system prompt containing structured grading criteria for both metrics.
+  - Request structured output:
+    ```python
+    response = await client.aio.models.generate_content(
+        model="gemini-flash-lite-latest",
+        contents=f"User Query: {query}\n\nGenerated Response: {response_content}",
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            response_mime_type="application/json",
+            response_schema=EvaluationResponse,
+            temperature=0.0
+        )
+    )
+    ```
+* **Why**: Enforcing structured schemas on the judge LLM eliminates parsing/regex headaches, guarantees well-formed JSON evaluations, and providing strict rubric criteria inside the system instruction grounds the judge's scoring behavior, reducing variance.
