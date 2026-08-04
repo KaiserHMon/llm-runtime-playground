@@ -180,11 +180,15 @@ export function ChatFeed({
               style={{
                 cursor: 'pointer',
                 borderRadius: 'var(--radius-md)',
-                padding: '8px',
-                transition: 'background var(--transition-fast)',
-                border: isSelected ? '1px dashed var(--nord8)' : '1px solid transparent',
-                backgroundColor: isSelected ? 'rgba(136, 192, 208, 0.02)' : 'transparent',
-                marginBottom: '12px'
+                padding: '12px 8px',
+                transition: 'all var(--transition-fast)',
+                border: isSelected ? '1px solid rgba(136, 192, 208, 0.25)' : '1px solid transparent',
+                backgroundColor: isSelected ? 'rgba(136, 192, 208, 0.03)' : 'transparent',
+                boxShadow: isSelected ? '0 4px 12px rgba(0, 0, 0, 0.15)' : 'none',
+                marginBottom: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
               }}
             >
               {/* User Bubble */}

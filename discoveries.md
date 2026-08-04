@@ -286,3 +286,62 @@ This document tracks key architectural decisions and framework-specific nuances 
     )
     ```
 * **Why**: Enforcing structured schemas on the judge LLM eliminates parsing/regex headaches, guarantees well-formed JSON evaluations, and providing strict rubric criteria inside the system instruction grounds the judge's scoring behavior, reducing variance.
+
+## Asynchronous Background Title Generation and Session Isolation
+* **Context**: When a conversation is started, generating a user-friendly title based on the first message asynchronously. In a streaming SSE endpoint, we must trigger this without stalling the response stream.
+* **Discovery**:
+  1. **FastAPI BackgroundTasks & Database Session Lifecycle**: Since `BackgroundTasks` run after the HTTP response is sent and the request's connection is closed, passing the request-scoped database session (`db`) directly can lead to `Cannot operate on a closed session` errors. We must use a fallback database strategy: try using the passed session, but if it is closed/expired, create a fresh database connection (`AsyncSessionLocal()`) within the task to commit the title safely.
+  2. **Preventing State Pollution on Singletons**: LLM provider classes resolved via `LLMFactory` are singletons. Modifying attributes like `system_prompt` temporarily inside async tasks causes race conditions with concurrent requests. Always instantiate a clean, local instance of `GeminiProvider` inside the task to encapsulate task-specific system instructions.
+* **Pattern**:
+  - The API endpoint:
+    ```python
+    @router.post("/{conversation_id}/messages/stream")
+    async def send_message_stream(
+        conversation_id: str,
+        payload: MessageCreate,
+        background_tasks: BackgroundTasks,
+        db: AsyncSession = Depends(get_db)
+    ):
+        return StreamingResponse(
+            stream_chat_message(..., background_tasks=background_tasks),
+            media_type="text/event-stream"
+        )
+    ```
+  - The streaming service:
+    ```python
+    async def stream_chat_message(..., background_tasks=None):
+        # Persist user message first
+        db.add(user_message)
+        await db.commit()
+        
+        # Check message count
+        count = await db.scalar(
+            select(func.count()).select_from(Message).where(Message.conversation_id == conversation_id)
+        )
+        if count == 1 and background_tasks:
+            background_tasks.add_task(generate_conversation_title, conversation_id, content, db)
+    ```
+  - The background task:
+    ```python
+    async def generate_conversation_title(conversation_id, content, db):
+        provider = GeminiProvider(model_id="gemini-flash-lite-latest")
+        provider.system_prompt = "You are a conversation titler..."
+        response = await provider.generate_response([Message(role="user", content=content)], temperature=0.0)
+        title = response.content.strip().strip('"\'`').replace(".", "")
+        try:
+            # Try request-scoped DB
+            stmt = select(Conversation).where(Conversation.id == conversation_id)
+            conv = await db.scalar(stmt)
+            if conv:
+                conv.title = title
+                await db.commit()
+        except Exception:
+            # Fallback to new DB session
+            async with AsyncSessionLocal() as new_db:
+                stmt = select(Conversation).where(Conversation.id == conversation_id)
+                conv = await new_db.scalar(stmt)
+                if conv:
+                    conv.title = title
+                    await new_db.commit()
+    ```
+* **Why**: Ensures zero latency impact on the user's chat streaming experience, eliminates state pollution and race conditions across requests, and guarantees database write safety even after HTTP connections are terminated.

@@ -225,6 +225,30 @@ export function useChat() {
         if (turns.length > 0) {
           setInspectedTurnId(turns[turns.length - 1].id);
         }
+
+        // If the conversation title is still null, poll the endpoint to capture the generated title
+        if (!data.title) {
+          let attempts = 0;
+          const intervalId = setInterval(async () => {
+            attempts++;
+            try {
+              const pollRes = await fetch(`/conversations/${currentId}`);
+              if (pollRes.ok) {
+                const pollData = await pollRes.json();
+                if (pollData.title) {
+                  setActiveConv(pollData);
+                  await loadConversations();
+                  clearInterval(intervalId);
+                }
+              }
+            } catch (err) {
+              console.error("Error polling conversation title:", err);
+            }
+            if (attempts >= 5) {
+              clearInterval(intervalId);
+            }
+          }, 1000);
+        }
       }
 
       await loadConversations();

@@ -219,10 +219,12 @@ body {
 
 .message-bubble.user {
   align-self: flex-end;
+  align-items: flex-end;
 }
 
 .message-bubble.model {
   align-self: flex-start;
+  align-items: flex-start;
 }
 
 .message-header {
