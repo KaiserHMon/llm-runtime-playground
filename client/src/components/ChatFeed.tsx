@@ -91,7 +91,7 @@ export function ChatFeed({
           </button>
 
           <div className="chat-title-info">
-            <h2>{activeConv?.title || (activeConvId ? 'Active Chat' : 'New Conversation')}</h2>
+            <h2>{activeConv?.title || (activeConvId ? 'Untitled Conversation' : 'New Conversation')}</h2>
             <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>
               {activeConvId ? `Thread: ${activeConvId}` : 'No Active Thread'}
             </span>

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -56,7 +56,12 @@ async def send_message(conversation_id: str, payload: MessageCreate, db: AsyncSe
         raise HTTPException(status_code=500, detail=f"LLM Error: {str(e)}")
 
 @router.post("/{conversation_id}/messages/stream")
-async def send_message_stream(conversation_id: str, payload: MessageCreate, db: AsyncSession = Depends(get_db)):
+async def send_message_stream(
+    conversation_id: str,
+    payload: MessageCreate,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
     """Sends a user message and streams the model's response back via SSE."""
     try:
         return StreamingResponse(
@@ -69,7 +74,8 @@ async def send_message_stream(conversation_id: str, payload: MessageCreate, db: 
                 temperature=payload.temperature,
                 top_k=payload.top_k,
                 top_p=payload.top_p,
-                enabled_tools=payload.enabled_tools
+                enabled_tools=payload.enabled_tools,
+                background_tasks=background_tasks
             ),
             media_type="text/event-stream"
         )

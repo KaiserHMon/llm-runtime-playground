@@ -1,7 +1,8 @@
 import asyncio
 import inspect
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
+from fastapi import BackgroundTasks
 
 from app.core.config import settings
 from app.models.chat import Conversation, Message, MessageRole
@@ -321,6 +322,7 @@ async def stream_chat_message(
     top_k: int | None = None,
     top_p: float | None = None,
     enabled_tools: list[str] | None = None,
+    background_tasks: BackgroundTasks | None = None,
 ):
     """
     Orchestrates the chat turn flow with manual tool execution loops,
@@ -366,6 +368,23 @@ async def stream_chat_message(
         tokens=user_tokens,
         parts=[{"text": content}]
     )
+    
+    # Persist the user's initial message immediately
+    db.add(user_message)
+    await db.commit()
+    
+    # Check if this is the first interaction in that conversation thread (message count equals 1)
+    message_count = await db.scalar(
+        select(func.count()).select_from(Message).where(Message.conversation_id == conversation_id)
+    )
+    if message_count == 1 and background_tasks is not None:
+        background_tasks.add_task(
+            generate_conversation_title,
+            conversation_id,
+            content,
+            db,
+            provider_name
+        )
     
     pending_messages = [user_message]
     current_history = sliced_history.copy()
@@ -468,6 +487,65 @@ async def stream_chat_message(
                 for chunk in chunks
             ]
 
+    # Commit only the newly generated messages, as the user_message was committed earlier
     for msg in pending_messages:
-        db.add(msg)
+        if msg is not user_message:
+            db.add(msg)
     await db.commit()
+
+
+async def generate_conversation_title(
+    conversation_id: str,
+    content: str,
+    db: AsyncSession,
+    provider_name: str | None = None,
+):
+    """
+    Generates a short, concise, and professional title (3 to 5 words maximum)
+    summarizing the user's query using the active LLM provider.
+    """
+    active_provider = factory.get_provider(provider_name)
+    if provider_name == "mock" or active_provider.__class__.__name__ == "MockProvider":
+        title = f"Mock Title: {content[:15]}"
+    else:
+        from app.services.llm.gemini import GeminiProvider
+        provider = GeminiProvider(model_id="gemini-flash-lite-latest")
+        provider.system_prompt = (
+            "You are a conversation titler. Generate a short, concise, and professional title (3 to 5 words maximum) "
+            "summarizing the user's query. Return ONLY the raw title text. Do not use markdown, quotes, or punctuation."
+        )
+        
+        history = [
+            Message(
+                role=MessageRole.USER,
+                content=content
+            )
+        ]
+        
+        try:
+            response = await provider.generate_response(
+                history=history,
+                temperature=0.0
+            )
+            title = response.content.strip() if response.content else "New Conversation"
+        except Exception:
+            title = "New Conversation"
+
+    # Clean up the raw title (remove quotes, markdown, and punctuation)
+    title = title.strip().strip('"\'`').replace(".", "").replace(",", "").replace(":", "")
+
+    try:
+        stmt = select(Conversation).where(Conversation.id == conversation_id)
+        conversation = await db.scalar(stmt)
+        if conversation:
+            conversation.title = title
+            await db.commit()
+    except Exception:
+        # Fallback to a fresh connection if the session is closed/expired
+        from app.core.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_db:
+            stmt = select(Conversation).where(Conversation.id == conversation_id)
+            conversation = await new_db.scalar(stmt)
+            if conversation:
+                conversation.title = title
+                await new_db.commit()

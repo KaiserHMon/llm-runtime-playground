@@ -95,8 +95,8 @@ body {
 .new-chat-btn {
   width: 100%;
   padding: 12px;
-  background-color: transparent;
-  border: 1px dashed var(--color-primary);
+  background-color: rgba(136, 192, 208, 0.08);
+  border: 1px solid rgba(136, 192, 208, 0.3);
   color: var(--color-primary);
   border-radius: var(--radius-md);
   font-weight: 600;
@@ -109,8 +109,8 @@ body {
 }
 
 .new-chat-btn:hover {
-  background-color: rgba(4, 211, 97, 0.1);
-  border-style: solid;
+  background-color: rgba(136, 192, 208, 0.18);
+  border-color: var(--color-primary);
 }
 
 .conversation-list {
@@ -136,7 +136,10 @@ body {
 
 .conversation-item.active {
   background-color: var(--bg-surface);
-  border-left: 3px solid var(--color-primary);
+}
+
+.conversation-item.active .conversation-title {
+  color: var(--color-primary);
 }
 
 .conversation-title {

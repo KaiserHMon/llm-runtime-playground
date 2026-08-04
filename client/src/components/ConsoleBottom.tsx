@@ -146,7 +146,7 @@ export function ConsoleBottom({
 
             {/* TAB 2: Execution steps timeline */}
             {consoleTab === 'timeline' && (
-              <div className="execution-timeline" style={{ margin: 0, paddingLeft: '15px' }}>
+              <div className="execution-timeline" style={{ margin: 0 }}>
                 {/* Step 1: Semantic router decision */}
                 <div className="timeline-step completed">
                   <div className="timeline-step-header">
