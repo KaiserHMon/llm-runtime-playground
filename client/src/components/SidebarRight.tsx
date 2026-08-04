@@ -1,4 +1,4 @@
-import type { RefObject, ChangeEvent, FormEvent } from 'react';
+import type { RefObject, ChangeEvent } from 'react';
 import type { RAGDoc } from '../types';
 
 interface SidebarRightProps {
@@ -18,11 +18,6 @@ interface SidebarRightProps {
   uploadError: string | null;
   docs: RAGDoc[];
   handleDeleteDocument: (name: string) => void;
-  sandboxQuery: string;
-  setSandboxQuery: (val: string) => void;
-  handleSandboxSearch: (e: FormEvent) => void;
-  sandboxLoading: boolean;
-  sandboxResults: any[];
 }
 
 export function SidebarRight({
@@ -41,12 +36,7 @@ export function SidebarRight({
   isUploading,
   uploadError,
   docs,
-  handleDeleteDocument,
-  sandboxQuery,
-  setSandboxQuery,
-  handleSandboxSearch,
-  sandboxLoading,
-  sandboxResults
+  handleDeleteDocument
 }: SidebarRightProps) {
   return (
     <aside className={`sidebar-right ${isRightCollapsed ? 'collapsed' : ''}`} id="sidebar-right">
@@ -151,7 +141,7 @@ export function SidebarRight({
         </div>
 
         {/* RAG Ingestion block */}
-        <div className="config-section">
+        <div className="config-section" style={{ borderBottom: 'none', paddingBottom: 0 }}>
           <div className="config-section-title">RAG Ingestion Database</div>
 
           <div className="rag-upload-zone" onClick={handleFileUploadClick}>
@@ -186,7 +176,7 @@ export function SidebarRight({
                 style={{ padding: '8px', borderColor: 'var(--border-color)', backgroundColor: 'rgba(0,0,0,0.1)' }}
               >
                 <div className="doc-icon" style={{ color: 'var(--nord8)' }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                     <polyline points="14 2 14 8 20 8"></polyline>
                   </svg>
@@ -205,7 +195,7 @@ export function SidebarRight({
                   onClick={() => handleDeleteDocument(doc.name)}
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--nord11)' }}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="3 6 5 6 21 6"></polyline>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                   </svg>
@@ -219,57 +209,6 @@ export function SidebarRight({
               </div>
             )}
           </div>
-        </div>
-
-        {/* Sandbox block */}
-        <div className="rag-sandbox" style={{ marginTop: '5px' }}>
-          <div className="config-section-title">RAG Vector Sandbox</div>
-          <form onSubmit={handleSandboxSearch} className="rag-sandbox-input-container" style={{ display: 'flex', gap: '4px' }}>
-            <input
-              type="text"
-              className="rag-sandbox-input"
-              placeholder="Query index directly..."
-              value={sandboxQuery}
-              onChange={(e) => setSandboxQuery(e.target.value)}
-              style={{ flex: 1 }}
-            />
-            <button type="submit" className="rag-sandbox-btn" disabled={sandboxLoading}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </button>
-          </form>
-
-          {sandboxResults.length > 0 && (
-            <div
-              style={{
-                maxHeight: '120px',
-                overflowY: 'auto',
-                fontSize: '11px',
-                background: 'var(--bg-primary)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '8px',
-                border: '1px solid var(--border-color)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '6px',
-                marginTop: '10px'
-              }}
-            >
-              {sandboxResults.map((chunk, idx) => (
-                <div key={chunk.id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '4px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontWeight: 600 }}>
-                    <span>{chunk.document_name}</span>
-                    {chunk.score !== null && (
-                      <span style={{ color: 'var(--nord14)' }}>{chunk.score.toFixed(2)}</span>
-                    )}
-                  </div>
-                  <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>{chunk.content}</div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     </aside>

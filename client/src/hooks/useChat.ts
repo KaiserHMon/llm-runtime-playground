@@ -27,10 +27,7 @@ export function useChat() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // RAG Sandbox States
-  const [sandboxQuery, setSandboxQuery] = useState('');
-  const [sandboxResults, setSandboxResults] = useState<any[]>([]);
-  const [sandboxLoading, setSandboxLoading] = useState(false);
+
 
   // Streaming & Turn Latency states
   const [isStreaming, setIsStreaming] = useState(false);
@@ -313,25 +310,7 @@ export function useChat() {
     }
   };
 
-  const handleSandboxSearch = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!sandboxQuery.trim()) return;
 
-    setSandboxLoading(true);
-    try {
-      const res = await fetch(`/documents/search?query=${encodeURIComponent(sandboxQuery)}&embedding_provider=${provider === 'mock' ? 'mock' : ''}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSandboxResults(data);
-      } else {
-        console.error('Failed to execute sandbox search');
-      }
-    } catch (err) {
-      console.error('Sandbox error:', err);
-    } finally {
-      setSandboxLoading(false);
-    }
-  };
 
   const handleToolCheckboxChange = (toolName: string) => {
     setEnabledTools(prev => {
@@ -535,11 +514,6 @@ export function useChat() {
     docs,
     isUploading,
     uploadError,
-    sandboxQuery,
-    setSandboxQuery,
-    sandboxResults,
-    setSandboxResults,
-    sandboxLoading,
     isStreaming,
     streamedContent,
     latencyMap,
@@ -551,7 +525,6 @@ export function useChat() {
     handleFileUploadClick,
     handleFileChange,
     handleDeleteDocument,
-    handleSandboxSearch,
     handleToolCheckboxChange,
 
     // Calculated fields

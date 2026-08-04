@@ -115,11 +115,6 @@ export default function App() {
         uploadError={chat.uploadError}
         docs={chat.docs}
         handleDeleteDocument={chat.handleDeleteDocument}
-        sandboxQuery={chat.sandboxQuery}
-        setSandboxQuery={chat.setSandboxQuery}
-        handleSandboxSearch={chat.handleSandboxSearch}
-        sandboxLoading={chat.sandboxLoading}
-        sandboxResults={chat.sandboxResults}
       />
     </div>
   );
