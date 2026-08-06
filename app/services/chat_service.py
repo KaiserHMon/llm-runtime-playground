@@ -165,6 +165,107 @@ async def execute_tool(db: AsyncSession, tool_name: str, args: dict) -> str:
         return f"Error executing tool {tool_name}: {str(e)}"
 
 
+async def _prepare_chat_turn(
+    db: AsyncSession,
+    conversation_id: str,
+    content: str,
+    provider_name: str | None = None,
+    system_prompt: str | None = None,
+):
+    # 1. Input safety check on raw query content
+    await verify_prompt_safety(content)
+    
+    # 2. PII anonymization on query content
+    anonymized_content, pii_mapping = anonymize_pii(content)
+    
+    provider = factory.get_provider(provider_name)
+    if system_prompt is not None:
+        provider.system_prompt = system_prompt
+    sliced_history, conversation = await get_active_history(db, conversation_id, provider)
+    
+    # Determine the route and conditionally retrieve RAG context
+    route = await route_message(anonymized_content, history=sliced_history, provider_name=provider_name)
+    rag_context = ""
+    chunks = []
+    if route == "RAG":
+        emb_provider = "mock" if provider_name == "mock" else None
+        chunks = await search_chunks(db, query=anonymized_content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
+        if chunks:
+            formatted_chunks = []
+            for idx, chunk in enumerate(chunks, 1):
+                source_name = chunk.document.name if chunk.document else "Unknown"
+                formatted_chunks.append(f"[{idx}] (Source: {source_name}): {chunk.content}")
+            rag_context = "\n\n".join(formatted_chunks)
+            
+    return provider, sliced_history, conversation, route, rag_context, chunks, pii_mapping, anonymized_content
+
+
+async def _execute_and_record_tools(
+    db: AsyncSession,
+    provider: LLMProvider,
+    conversation_id: str,
+    response,
+    pending_messages: list[Message],
+    current_history: list[Message],
+):
+    tool_calls_json = [{"name": tc.name, "args": tc.args} for tc in response.tool_calls]
+    parts_json = response.parts
+        
+    model_message = Message(
+        conversation_id=conversation_id,
+        role=MessageRole.MODEL,
+        content=response.content,
+        tool_calls=tool_calls_json,
+        parts=parts_json,
+        tokens=await provider.count_tokens(response.content) if response.content else 0
+    )
+    pending_messages.append(model_message)
+    current_history.append(model_message)
+    
+    for tc in response.tool_calls:
+        result_str = await execute_tool(db, tc.name, tc.args)
+        parts_list = provider.format_tool_response(tc.name, result_str)
+        
+        tool_msg = Message(
+            conversation_id=conversation_id,
+            role=MessageRole.TOOL,
+            content=result_str,
+            tool_name=tc.name,
+            parts=parts_list,
+            tokens=await provider.count_tokens(result_str)
+        )
+        pending_messages.append(tool_msg)
+        current_history.append(tool_msg)
+
+
+def _finalize_model_message(
+    final_model_message: Message,
+    route: str,
+    chunks: list,
+    pii_mapping: dict,
+) -> Message:
+    if final_model_message:
+        if final_model_message.content:
+            final_model_message.content = deanonymize_pii(final_model_message.content, pii_mapping)
+        if final_model_message.parts:
+            for part in final_model_message.parts:
+                if isinstance(part, dict) and "text" in part and part["text"]:
+                    part["text"] = deanonymize_pii(part["text"], pii_mapping)
+                    
+        final_model_message.rag_route = route
+        if route == "RAG" and chunks:
+            final_model_message.rag_sources = [
+                {
+                    "document_name": chunk.document.name if chunk.document else "Unknown",
+                    "chunk_index": chunk.chunk_index,
+                    "content": chunk.content,
+                    "score": getattr(chunk, "score", None)
+                }
+                for chunk in chunks
+            ]
+    return final_model_message
+
+
 async def process_chat_message(
     db: AsyncSession,
     conversation_id: str,
@@ -187,40 +288,24 @@ async def process_chat_message(
     All messages (user prompt, intermediate tool requests, tool outputs, and final text)
     are saved to the database in a single atomic commit at the end.
     """
-    # 1. Input safety check on raw query content
-    await verify_prompt_safety(content)
-    
-    # 2. PII anonymization on query content
-    anon_content, pii_mapping = anonymize_pii(content)
-    content = anon_content
+    (
+        provider,
+        sliced_history,
+        conversation,
+        route,
+        rag_context,
+        chunks,
+        pii_mapping,
+        anon_content,
+    ) = await _prepare_chat_turn(db, conversation_id, content, provider_name, system_prompt)
 
-    provider = factory.get_provider(provider_name)
-    if system_prompt is not None:
-        provider.system_prompt = system_prompt
-    sliced_history, conversation = await get_active_history(db, conversation_id, provider)
-    
-    # Determine the route and conditionally retrieve RAG context
-    route = await route_message(content, history=sliced_history, provider_name=provider_name)
-    rag_context = ""
-    chunks = []
-    if route == "RAG":
-        emb_provider = "mock" if provider_name == "mock" else None
-        chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
-        if chunks:
-            formatted_chunks = []
-            for idx, chunk in enumerate(chunks, 1):
-                source_name = chunk.document.name if chunk.document else "Unknown"
-                formatted_chunks.append(f"[{idx}] (Source: {source_name}): {chunk.content}")
-            rag_context = "\n\n".join(formatted_chunks)
-
-    
-    user_tokens = await provider.count_tokens(content)
+    user_tokens = await provider.count_tokens(anon_content)
     user_message = Message(
         conversation_id=conversation_id,
         role=MessageRole.USER,
-        content=content,
+        content=anon_content,
         tokens=user_tokens,
-        parts=[{"text": content}]
+        parts=[{"text": anon_content}]
     )
     
     pending_messages = [user_message]
@@ -241,42 +326,15 @@ async def process_chat_message(
         )
         
         if response.tool_calls:
-            tool_calls_json = [{"name": tc.name, "args": tc.args} for tc in response.tool_calls]
-            parts_json = response.parts
-                
-            model_message = Message(
-                conversation_id=conversation_id,
-                role=MessageRole.MODEL,
-                content=response.content,
-                tool_calls=tool_calls_json,
-                parts=parts_json,
-                tokens=await provider.count_tokens(response.content) if response.content else 0
+            await _execute_and_record_tools(
+                db, provider, conversation_id, response, pending_messages, current_history
             )
-            pending_messages.append(model_message)
-            current_history.append(model_message)
-            
-            for tc in response.tool_calls:
-                result_str = await execute_tool(db, tc.name, tc.args)
-                
-                parts_list = provider.format_tool_response(tc.name, result_str)
-                
-                tool_msg = Message(
-                    conversation_id=conversation_id,
-                    role=MessageRole.TOOL,
-                    content=result_str,
-                    tool_name=tc.name,
-                    parts=parts_list,
-                    tokens=await provider.count_tokens(result_str)
-                )
-                pending_messages.append(tool_msg)
-                current_history.append(tool_msg)
         else:
-            parts_json = response.parts
             final_model_message = Message(
                 conversation_id=conversation_id,
                 role=MessageRole.MODEL,
                 content=response.content,
-                parts=parts_json,
+                parts=response.parts,
                 tokens=await provider.count_tokens(response.content) if response.content else 0
             )
             pending_messages.append(final_model_message)
@@ -285,32 +343,16 @@ async def process_chat_message(
     if not final_model_message:
         final_model_message = pending_messages[-1]
         
-    # Deanonymize final response content using the generated mapping
-    if final_model_message and final_model_message.content:
-        final_model_message.content = deanonymize_pii(final_model_message.content, pii_mapping)
-        if final_model_message.parts:
-            for part in final_model_message.parts:
-                if isinstance(part, dict) and "text" in part and part["text"]:
-                    part["text"] = deanonymize_pii(part["text"], pii_mapping)
-        
-    if final_model_message:
-        final_model_message.rag_route = route
-        if route == "RAG" and chunks:
-            final_model_message.rag_sources = [
-                {
-                    "document_name": chunk.document.name if chunk.document else "Unknown",
-                    "chunk_index": chunk.chunk_index,
-                    "content": chunk.content,
-                    "score": getattr(chunk, "score", None)
-                }
-                for chunk in chunks
-            ]
-
+    final_model_message = _finalize_model_message(
+        final_model_message, route, chunks, pii_mapping
+    )
+    
     for msg in pending_messages:
         db.add(msg)
     await db.commit()
     await db.refresh(final_model_message)
     return final_model_message
+
 
 async def stream_chat_message(
     db: AsyncSession,
@@ -333,47 +375,31 @@ async def stream_chat_message(
     response chunks as they are received from the LLM provider, saving the complete
     sequence in the database at the end.
     """
-    # 1. Input safety check on raw query content
-    await verify_prompt_safety(content)
+    (
+        provider,
+        sliced_history,
+        conversation,
+        route,
+        rag_context,
+        chunks,
+        pii_mapping,
+        anon_content,
+    ) = await _prepare_chat_turn(db, conversation_id, content, provider_name, system_prompt)
     
-    # 2. PII anonymization on query content
-    anon_content, pii_mapping = anonymize_pii(content)
-    content = anon_content
-
-    provider = factory.get_provider(provider_name)
-    if system_prompt is not None:
-        provider.system_prompt = system_prompt
-    sliced_history, conversation = await get_active_history(db, conversation_id, provider)
-    
-    # Determine the route and conditionally retrieve RAG context
-    route = await route_message(content, history=sliced_history, provider_name=provider_name)
-    rag_context = ""
-    chunks = []
-    if route == "RAG":
-        emb_provider = "mock" if provider_name == "mock" else None
-        chunks = await search_chunks(db, query=content, conversation_id=conversation_id, top_k=5, embedding_provider=emb_provider)
-        if chunks:
-            formatted_chunks = []
-            for idx, chunk in enumerate(chunks, 1):
-                source_name = chunk.document.name if chunk.document else "Unknown"
-                formatted_chunks.append(f"[{idx}] (Source: {source_name}): {chunk.content}")
-            rag_context = "\n\n".join(formatted_chunks)
-
-    
-    user_tokens = await provider.count_tokens(content)
+    user_tokens = await provider.count_tokens(anon_content)
     user_message = Message(
         conversation_id=conversation_id,
         role=MessageRole.USER,
-        content=content,
+        content=anon_content,
         tokens=user_tokens,
-        parts=[{"text": content}]
+        parts=[{"text": anon_content}]
     )
     
     # Persist the user's initial message immediately
     db.add(user_message)
     await db.commit()
     
-    # Check if this is the first interaction in that conversation thread (message count equals 1)
+    # Check if this is the first interaction in that conversation thread
     message_count = await db.scalar(
         select(func.count()).select_from(Message).where(Message.conversation_id == conversation_id)
     )
@@ -381,7 +407,7 @@ async def stream_chat_message(
         background_tasks.add_task(
             generate_conversation_title,
             conversation_id,
-            content,
+            anon_content,
             db,
             provider_name
         )
@@ -404,35 +430,9 @@ async def stream_chat_message(
         )
         
         if response.tool_calls:
-            tool_calls_json = [{"name": tc.name, "args": tc.args} for tc in response.tool_calls]
-            parts_json = response.parts
-                
-            model_message = Message(
-                conversation_id=conversation_id,
-                role=MessageRole.MODEL,
-                content=response.content,
-                tool_calls=tool_calls_json,
-                parts=parts_json,
-                tokens=await provider.count_tokens(response.content) if response.content else 0
+            await _execute_and_record_tools(
+                db, provider, conversation_id, response, pending_messages, current_history
             )
-            pending_messages.append(model_message)
-            current_history.append(model_message)
-            
-            for tc in response.tool_calls:
-                result_str = await execute_tool(db, tc.name, tc.args)
-                
-                parts_list = provider.format_tool_response(tc.name, result_str)
-                
-                tool_msg = Message(
-                    conversation_id=conversation_id,
-                    role=MessageRole.TOOL,
-                    content=result_str,
-                    tool_name=tc.name,
-                    parts=parts_list,
-                    tokens=await provider.count_tokens(result_str)
-                )
-                pending_messages.append(tool_msg)
-                current_history.append(tool_msg)
         else:
             # Final text turn: Stream the response content
             accumulated_content = []
@@ -449,7 +449,7 @@ async def stream_chat_message(
                 ):
                     if chunk:
                         yield chunk
-
+            
             async for chunk in deanonymize_stream(raw_stream(), pii_mapping):
                 accumulated_content.append(chunk)
                 yield chunk
@@ -467,26 +467,11 @@ async def stream_chat_message(
             
     if not final_model_message:
         final_model_message = pending_messages[-1]
-        if final_model_message and final_model_message.content:
-            final_model_message.content = deanonymize_pii(final_model_message.content, pii_mapping)
-            if final_model_message.parts:
-                for part in final_model_message.parts:
-                    if isinstance(part, dict) and "text" in part and part["text"]:
-                        part["text"] = deanonymize_pii(part["text"], pii_mapping)
         
-    if final_model_message:
-        final_model_message.rag_route = route
-        if route == "RAG" and chunks:
-            final_model_message.rag_sources = [
-                {
-                    "document_name": chunk.document.name if chunk.document else "Unknown",
-                    "chunk_index": chunk.chunk_index,
-                    "content": chunk.content,
-                    "score": getattr(chunk, "score", None)
-                }
-                for chunk in chunks
-            ]
-
+    final_model_message = _finalize_model_message(
+        final_model_message, route, chunks, pii_mapping
+    )
+    
     # Commit only the newly generated messages, as the user_message was committed earlier
     for msg in pending_messages:
         if msg is not user_message:
