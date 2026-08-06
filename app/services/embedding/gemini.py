@@ -31,12 +31,15 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
             if response.embeddings and response.embeddings[0].values is not None:
                 return response.embeddings[0].values[:768]
         except Exception:
-            # Fall back to gemini-embedding-001 if gemini-embedding-2 is not available
-            response = await self.client.aio.models.embed_content(
-                model="gemini-embedding-001",
-                contents=text
-            )
-            if response.embeddings and response.embeddings[0].values is not None:
-                return response.embeddings[0].values[:768]
+            try:
+                # Fall back to gemini-embedding-001 if gemini-embedding-2 is not available
+                response = await self.client.aio.models.embed_content(
+                    model="gemini-embedding-001",
+                    contents=text
+                )
+                if response.embeddings and response.embeddings[0].values is not None:
+                    return response.embeddings[0].values[:768]
+            except Exception:
+                pass
 
         raise ValueError("Failed to retrieve embedding values from Gemini API response.")
