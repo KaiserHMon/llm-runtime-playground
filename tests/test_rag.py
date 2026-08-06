@@ -123,3 +123,104 @@ async def test_rag_http_endpoints(api_client):
     response = await api_client.get("/documents")
     docs = response.json()
     assert not any(d["name"] == "api_test_doc.txt" for d in docs)
+
+
+@pytest.mark.asyncio
+async def test_rag_service_initialization_branches(monkeypatch):
+    import importlib
+    import app.services.rag_service
+    from unittest.mock import patch
+
+    try:
+        # Test QDRANT_URL branch
+        monkeypatch.setattr("app.core.config.settings.QDRANT_URL", "http://localhost:6333")
+        monkeypatch.setattr("app.core.config.settings.QDRANT_API_KEY", "secret_key")
+        with patch("qdrant_client.AsyncQdrantClient") as mock_client:
+            importlib.reload(app.services.rag_service)
+            mock_client.assert_called_with(url="http://localhost:6333", api_key="secret_key")
+            
+        # Test QDRANT_PATH generic branch
+        monkeypatch.setattr("app.core.config.settings.QDRANT_URL", "")
+        monkeypatch.setattr("app.core.config.settings.QDRANT_PATH", "./custom_qdrant")
+        with patch("qdrant_client.AsyncQdrantClient") as mock_client:
+            importlib.reload(app.services.rag_service)
+            mock_client.assert_called_with(path="./custom_qdrant")
+    finally:
+        # Clean up and reload with default in-memory configuration
+        monkeypatch.setattr("app.core.config.settings.QDRANT_URL", "")
+        monkeypatch.setattr("app.core.config.settings.QDRANT_PATH", ":memory:")
+        importlib.reload(app.services.rag_service)
+        await app.services.rag_service.init_qdrant()
+
+
+def test_split_text_edge_cases():
+    from app.services.rag_service import split_text
+    
+    # 1. Empty text
+    assert split_text("") == []
+    
+    # 2. Text fits within chunk_size
+    assert split_text("hello", chunk_size=10) == ["hello"]
+    
+    # 3. Text needs splitting with no delimiters (runs character splitting)
+    long_word = "abcdefghij"
+    result = split_text(long_word, chunk_size=5, overlap=2)
+    assert "abcde" in result
+    assert "ghij" in result
+    
+    # 4. Complex text with newlines and spaces to trigger recursive delimiters
+    complex_text = "Paragraph one.\n\nParagraph two with some extra words.\nParagraph three."
+    chunks = split_text(complex_text, chunk_size=20, overlap=5)
+    assert len(chunks) > 0
+
+
+@pytest.mark.asyncio
+async def test_search_chunks_edge_cases(db_session):
+    from unittest.mock import AsyncMock, patch
+    # 1. Empty query
+    assert await search_chunks(db_session, query="") == []
+    
+    # 2. Non-mock provider sets default threshold 0.70
+    with patch("app.services.rag_service.qdrant_client") as mock_qdrant:
+        mock_qdrant.query_points = AsyncMock(return_value=None)
+        with patch("app.services.rag_service.get_embedding", new_callable=AsyncMock) as mock_embed:
+            mock_embed.return_value = [0.1] * 768
+            res = await search_chunks(db_session, query="test query", embedding_provider="gemini")
+            assert res == []
+            mock_qdrant.query_points.assert_called_once()
+            kwargs = mock_qdrant.query_points.call_args[1]
+            assert kwargs["score_threshold"] == 0.70
+
+
+@pytest.mark.asyncio
+async def test_delete_document_success_and_cascade(db_session):
+    from app.services.rag_service import delete_document
+    # Create doc
+    doc = await ingest_document(db_session, "to_delete.txt", "Content to be deleted", embedding_provider="mock")
+    assert doc.id is not None
+    
+    # Delete document
+    deleted = await delete_document(db_session, "to_delete.txt")
+    assert deleted is True
+    
+    # Verify it's gone from database
+    stmt = select(DocumentChunk).where(DocumentChunk.document_id == doc.id)
+    chunks = (await db_session.scalars(stmt)).all()
+    assert len(chunks) == 0
+
+
+@pytest.mark.asyncio
+async def test_ingest_document_exception_rollback(db_session):
+    from unittest.mock import AsyncMock, patch
+    # Mock qdrant upsert to fail
+    with patch("app.services.rag_service.qdrant_client") as mock_qdrant:
+        mock_qdrant.upsert = AsyncMock(side_effect=Exception("Qdrant write failed"))
+        
+        # Ingesting should raise Exception
+        with pytest.raises(Exception, match="Qdrant write failed"):
+            await ingest_document(db_session, "fail_doc.txt", "some content", embedding_provider="mock")
+            
+        # Verify document fail_doc.txt is not in the DB because it rolled back
+        from app.models.document import Document
+        doc = await db_session.scalar(select(Document).where(Document.name == "fail_doc.txt"))
+        assert doc is None
